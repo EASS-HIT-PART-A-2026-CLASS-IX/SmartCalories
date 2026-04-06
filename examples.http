@@ -1,0 +1,35 @@
+### Calorie tracker – REST Client (VS Code: humao.rest-client)
+### Start API: uv run uvicorn calorie_tracker.main:app --reload
+@baseUrl = http://127.0.0.1:8000
+
+### Health
+GET {{baseUrl}}/health
+
+### List entries
+GET {{baseUrl}}/entries
+
+### Create entry
+POST {{baseUrl}}/entries
+Content-Type: application/json
+
+{
+  "name": "Oatmeal with berries",
+  "calories": 280,
+  "meal": "breakfast"
+}
+
+### Get entry by id
+GET {{baseUrl}}/entries/1
+
+### Replace entry
+PUT {{baseUrl}}/entries/1
+Content-Type: application/json
+
+{
+  "name": "Oatmeal",
+  "calories": 220,
+  "meal": "breakfast"
+}
+
+### Delete entry
+DELETE {{baseUrl}}/entries/1
