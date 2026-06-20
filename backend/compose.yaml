@@ -1,6 +1,8 @@
 services:
   api:
-    build: .
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
     image: smart-calories-api
     command: ["sh", "-c", "alembic upgrade head && uvicorn calorie_tracker.main:app --host 0.0.0.0 --port 9000"]
     environment:
@@ -39,7 +41,9 @@ services:
       retries: 5
 
   worker:
-    build: .
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
     image: smart-calories-api
     command: ["arq", "calorie_tracker.workers.worker.WorkerSettings"]
     environment:

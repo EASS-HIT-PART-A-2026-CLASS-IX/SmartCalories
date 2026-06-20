@@ -4,12 +4,12 @@ FROM ghcr.io/astral-sh/uv:0.5-python3.12-bookworm-slim AS builder
 WORKDIR /app
 ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PROJECT_ENVIRONMENT=/opt/venv
 
-COPY pyproject.toml uv.lock README.md ./
+COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
-COPY calorie_tracker ./calorie_tracker
-COPY alembic.ini ./alembic.ini
+COPY backend/calorie_tracker ./calorie_tracker
+COPY backend/alembic.ini ./alembic.ini
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
