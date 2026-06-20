@@ -6,11 +6,13 @@ import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
   type Auth,
+  type AuthError,
   type User,
   getAuth,
   linkWithPopup,
   onIdTokenChanged,
   signInAnonymously,
+  signInWithCredential,
   signInWithPopup,
   signOut as fbSignOut,
 } from 'firebase/auth';
@@ -54,7 +56,21 @@ export async function signInWithGoogle(): Promise<void> {
   if (!a) return;
   const provider = new GoogleAuthProvider();
   if (a.currentUser?.isAnonymous) {
-    await linkWithPopup(a.currentUser, provider);
+    try {
+      await linkWithPopup(a.currentUser, provider);
+    } catch (err) {
+      // The Google account is already tied to a real Firebase account.
+      // Extract the credential from the error and sign in directly,
+      // which drops the anonymous session and resumes the existing account.
+      if ((err as AuthError).code === 'auth/credential-already-in-use') {
+        const credential = GoogleAuthProvider.credentialFromError(err as AuthError);
+        if (credential) {
+          await signInWithCredential(a, credential);
+          return;
+        }
+      }
+      throw err;
+    }
   } else {
     await signInWithPopup(a, provider);
   }
