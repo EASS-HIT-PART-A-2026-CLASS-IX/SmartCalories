@@ -1,0 +1,57 @@
+# Auto-loaded by `docker compose up` alongside compose.yaml.
+# Switches api → uvicorn --reload (bind-mounts source) and web → vite dev server (HMR).
+# Delete this file or rename it to disable hot reload (back to nginx static + plain uvicorn).
+
+services:
+  api:
+    command:
+      ["sh", "-c",
+       "alembic upgrade head && uvicorn calorie_tracker.main:app --host 0.0.0.0 --port 9000 --reload --reload-dir /app/calorie_tracker"]
+    volumes:
+      - ./calorie_tracker:/app/calorie_tracker
+      - ./alembic.ini:/app/alembic.ini
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./secrets:/app/secrets:ro
+    environment:
+      ENVIRONMENT: dev
+      LOG_LEVEL: DEBUG
+      ALLOWED_ORIGINS: '["http://localhost:5173","http://localhost:5174"]'
+
+  worker:
+    command:
+      ["arq", "calorie_tracker.workers.worker.WorkerSettings", "--watch", "calorie_tracker"]
+    volumes:
+      - ./calorie_tracker:/app/calorie_tracker
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./secrets:/app/secrets:ro
+
+  # Replace the production nginx container with a Vite dev server that bind-mounts the source.
+  # HMR updates the browser instantly on file save. node_modules is a named volume so host
+  # platform mismatches (macOS host / Linux container) don't break native deps.
+  web:
+    image: node:22-alpine
+    build: !reset null
+    working_dir: /app
+    command: ["sh", "-c", "npm install --silent && npm run dev -- --host 0.0.0.0 --port 5173"]
+    volumes:
+      - ../frontend:/app
+      - sc_web_node_modules:/app/node_modules
+    # Load every VITE_* from frontend/.env into the container env. Vite reads process.env
+    # at first priority, so this works whether or not the values are also in the file on disk.
+    env_file:
+      - path: ../frontend/.env
+        required: false
+    environment:
+      # Always force the backend URL — the file might point elsewhere; in compose-dev we know.
+      VITE_API_BASE: http://localhost:9000
+    ports:
+      - "5174:5173"
+    healthcheck: !reset null
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  sc_web_node_modules:

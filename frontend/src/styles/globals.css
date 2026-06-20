@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 8%;          /* deep slate, much higher contrast than 3.9% gray */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 8%;
+    --primary: 142 76% 36%;             /* slightly darker green for better legibility on white */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 95%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 95%;
+    --muted-foreground: 220 9% 35%;     /* was 46% — bumped darker so muted copy is readable */
+    --accent: 142 76% 92%;
+    --accent-foreground: 142 71% 22%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 13% 86%;              /* slightly more visible borders */
+    --input: 220 13% 86%;
+    --ring: 142 76% 36%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 5%;
+    --card-foreground: 0 0% 98%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 142 30% 18%;
+    --accent-foreground: 142 70% 70%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 142 71% 50%;
+  }
+
+  * { @apply border-border; }
+  html { -webkit-tap-highlight-color: transparent; font-size: 17px; }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  code, pre, kbd { @apply font-mono; }
+}
+
+@layer utilities {
+  .scroll-area-thin::-webkit-scrollbar { width: 6px; }
+  .scroll-area-thin::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+}

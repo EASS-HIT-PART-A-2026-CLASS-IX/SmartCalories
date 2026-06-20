@@ -1,0 +1,53 @@
+{
+  "app": { "name": "SmartCalories" },
+  "nav": {
+    "chat": "Chat",
+    "diary": "Diary",
+    "history": "History",
+    "insights": "Insights",
+    "profile": "Profile"
+  },
+  "actions": {
+    "newChat": "New chat",
+    "send": "Send",
+    "stop": "Stop",
+    "save": "Save",
+    "cancel": "Cancel",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "continueAsGuest": "Continue as guest"
+  },
+  "auth": {
+    "demoMode": "Demo mode — set VITE_FB_* in .env.local for real Firebase auth.",
+    "signedInAs": "Signed in as {{name}}",
+    "guest": "Guest"
+  },
+  "slash": {
+    "log": "Log foods you ate. Example: /log 2 boiled eggs",
+    "macros": "Show today's macros vs your goals",
+    "budget": "How many kcal/macros are still available today",
+    "water": "Log water intake",
+    "goal": "Set or view daily targets",
+    "scan": "Scan a food photo"
+  },
+  "empty": {
+    "chat": "Start a conversation. Try /log oatmeal 300 or upload a meal photo.",
+    "diary": "No entries yet today. Use the Chat tab or tap + to log.",
+    "history": "Your past chats will appear here.",
+    "insights": "Log a few meals to see charts.",
+    "profile": "Manage account, dietary filters, and preferences."
+  },
+  "loading": "Loading…",
+  "thinking": "Thinking…",
+  "tools": {
+    "logging": "Logging your meal…",
+    "checking_macros": "Checking today's macros…",
+    "checking_budget": "Checking your remaining budget…",
+    "logging_water": "Logging water…",
+    "updating_goal": "Updating your goal…",
+    "checking_goal": "Reading your goal…",
+    "computing_tdee": "Computing TDEE…",
+    "analyzing_photo": "Analyzing the photo…",
+    "checking_streak": "Checking your streak…"
+  }
+}

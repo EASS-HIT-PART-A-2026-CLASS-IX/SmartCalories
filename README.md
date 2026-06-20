@@ -23,35 +23,35 @@ uv sync
 uv run uvicorn calorie_tracker.main:app
 ```
 
-Base URL: `http://127.0.0.1:8000` (adjust if you change host/port).
+Base URL: `http://127.0.0.1:9000` (adjust if you change host/port).
 
 ### Interactive docs (no `curl`)
 
-Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) (Swagger UI): **Try it out** → **Execute** on each route. ReDoc: `/redoc`.
+Open [http://127.0.0.1:9000/docs](http://127.0.0.1:9000/docs) (Swagger UI): **Try it out** → **Execute** on each route. ReDoc: `/redoc`.
 
 ### `curl` examples
 
 ```bash
-curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:9000/health
 ```
 ```bash
-curl -s http://127.0.0.1:8000/entries
+curl -s http://127.0.0.1:9000/entries
 ```
 ```bash
-curl -s -X POST http://127.0.0.1:8000/entries \
+curl -s -X POST http://127.0.0.1:9000/entries \
   -H "Content-Type: application/json" \
   -d '{"name":"Oatmeal","calories":150,"meal":"breakfast"}'
 ```
 ```bash
-curl -s http://127.0.0.1:8000/entries/1
+curl -s http://127.0.0.1:9000/entries/1
 ```
 ```bash
-curl -s -X PUT http://127.0.0.1:8000/entries/1 \
+curl -s -X PUT http://127.0.0.1:9000/entries/1 \
   -H "Content-Type: application/json" \
   -d '{"name":"Oatmeal with berries","calories":220,"meal":"breakfast"}'
 ```
 ```bash
-curl -s -X DELETE http://127.0.0.1:8000/entries/1
+curl -s -X DELETE http://127.0.0.1:9000/entries/1
 ```
 
 Optional: append `| python -m json.tool` to pretty-print JSON.

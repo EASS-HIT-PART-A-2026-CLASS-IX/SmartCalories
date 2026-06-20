@@ -1,0 +1,111 @@
+services:
+  api:
+    build: .
+    image: smart-calories-api
+    command: ["sh", "-c", "alembic upgrade head && uvicorn calorie_tracker.main:app --host 0.0.0.0 --port 9000"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      # Default points at the in-compose redis service; overridden in non-dev .env to a managed
+      # Redis (e.g. Redis Cloud `rediss://default:<pwd>@<host>:6379`).
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e4b}
+      ALLOWED_ORIGINS: '["http://localhost:5173"]'
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "9000:9000"
+    extra_hosts:
+      # Lets the api container reach a Mac/Linux host's Ollama at host.docker.internal:11434.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      # When the `local-redis` profile is inactive (i.e. prod) the redis service simply isn't
+      # part of the project, and Compose silently drops this dependency.
+      redis:
+        condition: service_healthy
+        required: false
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./secrets:/app/secrets:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import httpx,sys; sys.exit(0 if httpx.get(\"http://localhost:9000/health\").status_code==200 else 1)'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  worker:
+    build: .
+    image: smart-calories-api
+    command: ["arq", "calorie_tracker.workers.worker.WorkerSettings"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e4b}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+        required: false
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./secrets:/app/secrets:ro
+
+  # Phase 14 enables this service.
+  # mcp:
+  #   image: smart-calories-api
+  #   command: ["python", "-m", "calorie_tracker.mcp.server"]
+  #   ports:
+  #     - "8765:8765"
+  #   environment:
+  #     DATABASE_URL: ${DATABASE_URL}
+  #     REDIS_URL: redis://redis:6379/0
+  #     FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+  #     FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
+  #     GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+
+  # Local Redis is only spun up when COMPOSE_PROFILES contains `local-redis`. In non-dev
+  # environments leave that env var unset and point REDIS_URL at a managed instance
+  # (Redis Cloud, Upstash, etc.) instead.
+  redis:
+    image: redis:7-alpine
+    profiles: ["local-redis"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    ports:
+      - "6379:6379"
+
+  web:
+    build:
+      context: ../frontend
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:9000}
+        VITE_FB_API_KEY: ${VITE_FB_API_KEY:-}
+        VITE_FB_AUTH_DOMAIN: ${VITE_FB_AUTH_DOMAIN:-}
+        VITE_FB_PROJECT_ID: ${VITE_FB_PROJECT_ID:-}
+        VITE_FB_APP_ID: ${VITE_FB_APP_ID:-}
+    image: smart-calories-web
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
