@@ -24,15 +24,20 @@ def _init_firebase() -> None:
     if _initialized:
         return
     settings = get_settings()
-    if not settings.firebase_credentials_path:
-        logger.warning("FIREBASE_CREDENTIALS_PATH unset; verify will fail until configured.")
-        _initialized = True
-        return
     import firebase_admin
     from firebase_admin import credentials
 
     if not firebase_admin._apps:
-        firebase_admin.initialize_app(credentials.Certificate(settings.firebase_credentials_path))
+        if settings.firebase_credentials_json:
+            import json
+            cert = credentials.Certificate(json.loads(settings.firebase_credentials_json))
+            firebase_admin.initialize_app(cert)
+        elif settings.firebase_credentials_path:
+            firebase_admin.initialize_app(credentials.Certificate(settings.firebase_credentials_path))
+        else:
+            logger.warning("Neither FIREBASE_CREDENTIALS_JSON nor FIREBASE_CREDENTIALS_PATH set; token verify will fail.")
+            _initialized = True
+            return
     _initialized = True
 
 

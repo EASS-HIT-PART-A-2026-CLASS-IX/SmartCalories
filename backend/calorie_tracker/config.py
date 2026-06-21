@@ -40,6 +40,10 @@ class Settings(BaseSettings):
         default=None,
         description="Path to a Firebase Admin service-account JSON. Skipped in tests.",
     )
+    firebase_credentials_json: str | None = Field(
+        default=None,
+        description="Firebase Admin service-account JSON as a string (alternative to a file path). Takes precedence over firebase_credentials_path.",
+    )
 
     gemini_api_key: str | None = None
     gemini_fallback_models: list[str] | None = Field(
