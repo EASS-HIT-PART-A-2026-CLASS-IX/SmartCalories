@@ -222,8 +222,14 @@ export function ChatView() {
   const hasMessages = (messages.data?.length ?? 0) > 0 || pendingUserText !== null || draft !== null;
   // A selected session with no cached messages yet — show pulsing skeleton bubbles instead of
   // either the empty hero (misleading) or a blank screen.
+  // But never show the skeleton while streaming: the draft/pendingUserText are the real content.
   const cachedCount = (messages.data ?? []).length;
-  const isLoadingSelected = selectedId !== null && messages.isLoading && cachedCount === 0;
+  const isLoadingSelected =
+    selectedId !== null &&
+    messages.isLoading &&
+    cachedCount === 0 &&
+    draft === null &&
+    pendingUserText === null;
 
   return (
     <div className="flex h-full">
