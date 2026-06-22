@@ -71,6 +71,8 @@ export function ChatView() {
   }, [draft?.phase, draft?.error]);
 
   const displayName = useAuthStore((s) => s.displayName);
+  const authReady = useAuthStore((s) => s.ready);
+  const uid = useAuthStore((s) => s.uid);
   const chatSidebarCollapsed = useUiStore((s) => s.chatSidebarCollapsed);
   const toggleChatSidebar = useUiStore((s) => s.toggleChatSidebar);
 
@@ -84,7 +86,9 @@ export function ChatView() {
   const messages = useQuery({
     queryKey: ['conversation', selectedId, 'messages'],
     queryFn: () => listMessages(selectedId!),
-    enabled: selectedId !== null,
+    // Wait for auth to be ready so the request goes out with a valid token.
+    // Without this guard the query fires on page load before Firebase resolves the session.
+    enabled: selectedId !== null && authReady && !!uid,
   });
 
   // Clicking "New chat" must be instant — no API round-trip. Navigate to `/`, and let
