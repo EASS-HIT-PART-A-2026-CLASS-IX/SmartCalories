@@ -193,3 +193,74 @@ async def analyze_image_tool(ctx: RunContext[AgentDeps], image_path: str) -> dic
 
     extraction = await vision.analyze_image(image_path)
     return extraction.model_dump()
+
+
+@agent.tool
+async def search_nutrition(ctx: RunContext[AgentDeps], query: str) -> dict:
+    """Look up nutrition data for a branded or packaged food via Open Food Facts.
+
+    Call this whenever the user mentions a specific product (e.g. "Coca Cola Zero",
+    "Activia yogurt", "Oreo") and you are unsure of its exact calorie/macro values.
+    Returns up to 3 matching products with kcal, protein, carb, fat per 100g and per
+    serving where available.  Pick the best match and pass its values to log_food.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            "https://world.openfoodfacts.org/cgi/search.pl",
+            params={
+                "search_terms": query,
+                "search_simple": "1",
+                "action": "process",
+                "json": "1",
+                "page_size": "5",
+                "fields": "product_name,brands,nutriments,serving_size,serving_quantity",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    results = []
+    for product in data.get("products", [])[:3]:
+        nut = product.get("nutriments", {})
+        kcal_100g = nut.get("energy-kcal_100g") or nut.get("energy_100g")
+        if kcal_100g is None:
+            continue
+        item: dict = {
+            "name": product.get("product_name") or "Unknown",
+            "brand": product.get("brands") or "",
+            "kcal_per_100g": round(float(kcal_100g), 1),
+            "protein_g_per_100g": round(float(nut.get("proteins_100g") or 0), 1),
+            "carb_g_per_100g": round(float(nut.get("carbohydrates_100g") or 0), 1),
+            "fat_g_per_100g": round(float(nut.get("fat_100g") or 0), 1),
+        }
+        # Add per-serving values when available
+        serving_size = product.get("serving_size") or ""
+        serving_qty = product.get("serving_quantity")
+        kcal_serving = nut.get("energy-kcal_serving") or nut.get("energy_serving")
+        if kcal_serving:
+            item.update(
+                serving_size=serving_size,
+                kcal_per_serving=round(float(kcal_serving), 1),
+                protein_g_per_serving=round(float(nut.get("proteins_serving") or 0), 1),
+                carb_g_per_serving=round(float(nut.get("carbohydrates_serving") or 0), 1),
+                fat_g_per_serving=round(float(nut.get("fat_serving") or 0), 1),
+            )
+        elif serving_qty:
+            factor = float(serving_qty) / 100.0
+            item.update(
+                serving_size=serving_size,
+                kcal_per_serving=round(float(kcal_100g) * factor, 1),
+                protein_g_per_serving=round(float(nut.get("proteins_100g") or 0) * factor, 1),
+                carb_g_per_serving=round(float(nut.get("carbohydrates_100g") or 0) * factor, 1),
+                fat_g_per_serving=round(float(nut.get("fat_100g") or 0) * factor, 1),
+            )
+        results.append(item)
+
+    if not results:
+        return {
+            "found": False,
+            "message": f"No nutrition data found for '{query}'. Try an alternative name or ask the user to provide the calories.",
+        }
+    return {"found": True, "results": results}
