@@ -31,8 +31,15 @@ def reset_engine() -> None:
 
 
 def init_db() -> None:
-    """Create tables for first-run dev environments. Production uses Alembic (Phase 3)."""
-    SQLModel.metadata.create_all(get_engine())
+    """Create tables for first-run dev/test environments — **SQLite only**.
+
+    Postgres (Neon) schema is owned exclusively by Alembic. Running `create_all` there races the
+    `alembic upgrade head` step in the compose command and creates tables out-of-band, which then
+    makes a later migration fail with `DuplicateTable` (this happened with `user_llm_key`). So on
+    Postgres this is a no-op and migrations are the single source of truth.
+    """
+    if get_settings().database_url.startswith("sqlite"):
+        SQLModel.metadata.create_all(get_engine())
 
 
 def get_session() -> Iterator[Session]:

@@ -1,14 +1,27 @@
+# Single dev-friendly stack — `docker compose --profile local-redis up --build`
+#   api    builds the backend image (deps), then runs uvicorn --reload over bind-mounted source
+#   web    Vite dev server (HMR) on http://localhost:5173; reads frontend/.env live
+#   redis  backs the rate-limit middleware only; spun up only with the `local-redis` profile
+# There is no separate nginx/prod compose path — develop and demo from this one file.
 services:
   api:
     build:
       context: ..
       dockerfile: backend/Dockerfile
     image: smart-calories-api
-    command: ["sh", "-c", "alembic upgrade head && uvicorn calorie_tracker.main:app --host 0.0.0.0 --port 9000"]
+    # Build the image for the Python deps, then bind-mount source (below) so --reload picks up
+    # edits without an image rebuild. `alembic upgrade head` runs migrations on boot.
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic upgrade head && uvicorn calorie_tracker.main:app --host 0.0.0.0 --port 9000 --reload --reload-dir /app/calorie_tracker",
+      ]
     environment:
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
       DATABASE_URL: ${DATABASE_URL}
-      # Default points at the in-compose redis service; overridden in non-dev .env to a managed
-      # Redis (e.g. Redis Cloud `rediss://default:<pwd>@<host>:6379`).
+      # Default points at the in-compose redis service; override in .env with a managed Redis
+      # (e.g. Redis Cloud `rediss://default:<pwd>@<host>:6379`).
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
@@ -18,75 +31,34 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e4b}
       ALLOWED_ORIGINS: '["http://localhost:5173"]'
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
     ports:
       - "9000:9000"
     extra_hosts:
       # Lets the api container reach a Mac/Linux host's Ollama at host.docker.internal:11434.
       - "host.docker.internal:host-gateway"
     depends_on:
-      # When the `local-redis` profile is inactive (i.e. prod) the redis service simply isn't
-      # part of the project, and Compose silently drops this dependency.
       redis:
         condition: service_healthy
         required: false
     volumes:
+      - ./calorie_tracker:/app/calorie_tracker
+      - ./alembic.ini:/app/alembic.ini
       - ./uploads:/app/uploads
       - ./data:/app/data
       - ./secrets:/app/secrets:ro
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import httpx,sys; sys.exit(0 if httpx.get(\"http://localhost:9000/health\").status_code==200 else 1)'"]
+      test:
+        [
+          "CMD-SHELL",
+          'python -c ''import httpx,sys; sys.exit(0 if httpx.get("http://localhost:9000/health").status_code==200 else 1)''',
+        ]
       interval: 10s
       timeout: 3s
       retries: 5
 
-  worker:
-    build:
-      context: ..
-      dockerfile: backend/Dockerfile
-    image: smart-calories-api
-    command: ["arq", "calorie_tracker.workers.worker.WorkerSettings"]
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e4b}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      api:
-        condition: service_started
-      redis:
-        condition: service_healthy
-        required: false
-    volumes:
-      - ./uploads:/app/uploads
-      - ./data:/app/data
-      - ./secrets:/app/secrets:ro
-
-  # Phase 14 enables this service.
-  # mcp:
-  #   image: smart-calories-api
-  #   command: ["python", "-m", "calorie_tracker.mcp.server"]
-  #   ports:
-  #     - "8765:8765"
-  #   environment:
-  #     DATABASE_URL: ${DATABASE_URL}
-  #     REDIS_URL: redis://redis:6379/0
-  #     FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
-  #     FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
-  #     GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-
   # Local Redis is only spun up when COMPOSE_PROFILES contains `local-redis`. In non-dev
-  # environments leave that env var unset and point REDIS_URL at a managed instance
-  # (Redis Cloud, Upstash, etc.) instead.
+  # environments leave that var unset and point REDIS_URL at a managed instance instead.
   redis:
     image: redis:7-alpine
     profiles: ["local-redis"]
@@ -99,17 +71,25 @@ services:
       - "6379:6379"
 
   web:
-    build:
-      context: ../frontend
-      args:
-        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:9000}
-        VITE_FB_API_KEY: ${VITE_FB_API_KEY:-}
-        VITE_FB_AUTH_DOMAIN: ${VITE_FB_AUTH_DOMAIN:-}
-        VITE_FB_PROJECT_ID: ${VITE_FB_PROJECT_ID:-}
-        VITE_FB_APP_ID: ${VITE_FB_APP_ID:-}
-    image: smart-calories-web
+    image: node:22-alpine
+    working_dir: /app
+    command: ["sh", "-c", "npm install --silent && npm run dev -- --host 0.0.0.0 --port 5173"]
+    # Load every VITE_* from frontend/.env into the container (Firebase config, etc.).
+    env_file:
+      - path: ../frontend/.env
+        required: false
+    environment:
+      # Force the backend URL — in compose we always know where the api is.
+      VITE_API_BASE: ${VITE_API_BASE:-http://localhost:9000}
+    volumes:
+      - ../frontend:/app
+      # Named volume so the host's node_modules (macOS) doesn't clobber the container's (Linux).
+      - sc_web_node_modules:/app/node_modules
     ports:
-      - "5173:80"
+      - "5173:5173"
     depends_on:
       api:
         condition: service_healthy
+
+volumes:
+  sc_web_node_modules:
