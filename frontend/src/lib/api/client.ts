@@ -14,6 +14,11 @@ export class ApiError extends Error {
   }
 }
 
+/** Raw auth token (no "Bearer " prefix) — used for the WebSocket `?token=` query param. */
+export async function getAuthToken(): Promise<string | null> {
+  return getToken();
+}
+
 async function getToken(): Promise<string | null> {
   const stored = useAuthStore.getState();
   // Demo session: token + uid live entirely in our store; never consult Firebase (which may

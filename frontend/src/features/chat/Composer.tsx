@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Image as ImageIcon, Send, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { matchCommands, SLASH_COMMANDS, type SlashCommand } from '@/lib/slashCommands';
-import { SlashCommandPopover } from './SlashCommandPopover';
+
+// Photo upload is disabled for now — flip to re-enable the attach button + file handling.
+const IMAGE_UPLOAD_ENABLED = false;
 
 interface Props {
   disabled?: boolean;
@@ -20,7 +21,6 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
   const { t } = useTranslation();
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [highlight, setHighlight] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -38,15 +38,9 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefill]);
 
-  const slashOpen = useMemo(() => /^\/\w*$/.test(text.split('\n')[0] ?? ''), [text]);
-  const slashList = useMemo(() => (slashOpen ? matchCommands(text.split(' ')[0]) : SLASH_COMMANDS), [
-    slashOpen,
-    text,
-  ]);
-
-  useEffect(() => setHighlight(0), [text]);
-
   const submit = () => {
+    // Don't allow a second send (via Enter) while one is already in flight.
+    if (isStreaming) return;
     if (!text.trim() && !file) return;
     onSend(text.trim(), file);
     setText('');
@@ -54,41 +48,16 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (slashOpen && slashList.length) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setHighlight((h) => (h + 1) % slashList.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setHighlight((h) => (h - 1 + slashList.length) % slashList.length);
-        return;
-      }
-      if (e.key === 'Tab' || e.key === 'Enter') {
-        if (slashList[highlight]) {
-          e.preventDefault();
-          insertCommand(slashList[highlight]);
-          return;
-        }
-      }
-    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       submit();
     }
   };
 
-  const insertCommand = (cmd: SlashCommand) => {
-    setText(`/${cmd.name} `);
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  };
-
-
   return (
     <div className="border-t bg-background p-3">
-      <div className="relative mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-card p-2 shadow-sm">
-        {file && (
+      <div className="relative mx-auto flex max-w-4xl flex-col gap-2 rounded-2xl border-2 border-foreground/25 bg-card p-2 shadow-sm">
+        {IMAGE_UPLOAD_ENABLED && file && (
           <div className="flex items-center gap-2 px-2 pt-1">
             <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-xs">
               <ImageIcon className="h-3 w-3 text-muted-foreground" />
@@ -109,7 +78,7 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Type a message, or /command, or upload a meal photo…"
+          placeholder="Type a message…"
           disabled={disabled}
           rows={1}
           className="min-h-[44px] resize-none border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
@@ -117,23 +86,27 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
 
         <div className="flex items-center justify-between gap-2 px-1 pb-1">
           <div className="flex items-center gap-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={disabled}
-              title="Upload meal photo"
-            >
-              <ImageIcon className="h-4 w-4" />
-            </Button>
+            {IMAGE_UPLOAD_ENABLED && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={disabled}
+                  title="Upload meal photo"
+                >
+                  <ImageIcon className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </div>
 
           {isStreaming ? (
@@ -148,14 +121,6 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
             </Button>
           )}
         </div>
-
-        {slashOpen && slashList.length > 0 && (
-          <SlashCommandPopover
-            query={text.split(' ')[0] ?? ''}
-            highlightIdx={highlight}
-            onPick={insertCommand}
-          />
-        )}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ interface Props {
 export function MessageListSkeleton() {
   return (
     <div className="flex-1 overflow-y-auto scroll-area-thin">
-      <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <div className="mx-auto max-w-5xl space-y-6 px-4 py-6">
         {[
           { side: 'user', w: 'w-2/3' },
           { side: 'assistant', w: 'w-3/4' },
@@ -42,7 +42,7 @@ export function MessageList({ messages, draft, pendingUserText, pendingImagePrev
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages.length, draft?.text.length, draft?.tools.length]);
+  }, [messages.length, draft?.text.length, draft?.phase]);
 
   // Dedupe: backend persists the user message BEFORE streaming, so a refetch mid-stream
   // can land it in the cache while we're still rendering the optimistic pending bubble.
@@ -62,7 +62,7 @@ export function MessageList({ messages, draft, pendingUserText, pendingImagePrev
 
   return (
     <div className="flex-1 overflow-y-auto scroll-area-thin">
-      <div className="mx-auto max-w-3xl divide-y divide-transparent">
+      <div className="mx-auto max-w-5xl divide-y divide-transparent">
         {messages.map((m) => (
           <MessageBubble
             key={m.id}
@@ -79,11 +79,7 @@ export function MessageList({ messages, draft, pendingUserText, pendingImagePrev
           />
         )}
         {draft &&
-          (draft.text ||
-            draft.tools.length ||
-            draft.phase === 'thinking' ||
-            draft.phase === 'starting' ||
-            draft.phase === 'error') && (
+          (draft.text || draft.phase === 'thinking' || draft.phase === 'error') && (
             <MessageBubble role="assistant" text={draft.text} draft={draft} />
           )}
         <div ref={bottomRef} />

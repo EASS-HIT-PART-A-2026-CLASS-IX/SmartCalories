@@ -3,9 +3,11 @@
   "nav": {
     "chat": "Chat",
     "diary": "Diary",
-    "history": "History",
-    "insights": "Insights",
-    "profile": "Profile"
+    "recents": "Recents",
+    "searchChats": "Search chats",
+    "loadMore": "Load more",
+    "darkMode": "Dark mode",
+    "apiKey": "API key"
   },
   "actions": {
     "newChat": "New chat",

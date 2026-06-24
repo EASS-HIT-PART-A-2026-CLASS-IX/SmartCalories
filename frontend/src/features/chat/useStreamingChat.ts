@@ -1,37 +1,37 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { streamChat, type StreamEvent } from '@/lib/api/chat';
+import { chatWsUrl, type ChatWsEvent, type Message } from '@/lib/api/chat';
+import { getAuthToken } from '@/lib/api/client';
 
-export type StreamPhase = 'idle' | 'starting' | 'thinking' | 'tool_running' | 'streaming' | 'done' | 'error';
-
-export interface ToolEvent {
-  id: string;
-  name: string;
-  state: 'running' | 'done';
-  argsPreview?: string;
-  summary?: string;
-}
+export type StreamPhase = 'idle' | 'thinking' | 'done' | 'error';
 
 export interface DraftMessage {
   id: string;
   text: string;
-  tools: ToolEvent[];
   phase: StreamPhase;
+  /** Name of the tool the agent is currently running (drives the live "Thinking" label). */
+  tool?: string;
   error?: string;
 }
 
-/** Snapshot of what the stream ultimately produced — passed to `onSettled`. Reading these
- *  via React state from the consumer doesn't work because closures capture stale values; the
- *  callback receives them directly so the optimistic cache write has the real text. */
+export interface SessionInfo {
+  id: number;
+  title: string;
+  isNew: boolean;
+  createdAt: string;
+}
+
 export interface SendResult {
   text: string;
-  toolNames: string[];
   phase: StreamPhase;
   error?: string;
+  session?: SessionInfo;
+  assistantMessage?: Message;
 }
 
 interface SendOptions {
-  sessionId: number;
+  /** Existing session id, or null to let the backend create one in the same request. */
+  sessionId: number | null;
   content: string;
   imagePath?: string | null;
   onSettled?: (result: SendResult) => void;
@@ -39,11 +39,13 @@ interface SendOptions {
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
+const thinkingDraft = (id = newId()): DraftMessage => ({ id, text: '', phase: 'thinking' });
+
 export function useStreamingChat() {
   const [draft, setDraft] = useState<DraftMessage | null>(null);
-  // Mirror of `draft` so async callbacks can read the latest value without React closure staleness.
   const draftRef = useRef<DraftMessage | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const manualStopRef = useRef(false);
 
   const updateDraft = useCallback(
     (next: DraftMessage | null | ((prev: DraftMessage | null) => DraftMessage | null)) => {
@@ -56,144 +58,136 @@ export function useStreamingChat() {
     [],
   );
 
-  const send = useCallback(async ({ sessionId, content, imagePath, onSettled }: SendOptions) => {
-    const controller = new AbortController();
-    abortRef.current = controller;
-    // Hard ceiling so a stuck Gemini call can't hang the bubble forever. 60s is well beyond
-    // a normal multi-tool turn but short enough that the user sees a real error rather than
-    // a silent spinner. Cleared on first event arrival.
-    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      controller.abort('timeout');
-    }, 60_000);
-    const clearTimeoutOnce = () => {
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-    };
+  const send = useCallback(
+    async ({ sessionId, content, imagePath, onSettled }: SendOptions) => {
+      manualStopRef.current = false;
+      updateDraft((prev) => (prev ? { ...prev, phase: 'thinking' } : thinkingDraft()));
 
-    // Preserve any tool chips that were seeded before the stream starts (e.g. the
-    // "Analyzing the photo…" chip we set during multipart upload).
-    updateDraft((prev) => ({
-      id: prev?.id ?? newId(),
-      text: prev?.text ?? '',
-      tools: prev?.tools ?? [],
-      phase: 'starting',
-    }));
+      let settled = false;
+      let session: SessionInfo | undefined;
+      let assistantMessage: Message | undefined;
+      let errorMsg: string | undefined;
 
-    try {
-      await streamChat(sessionId, content, {
-        imagePath,
-        signal: controller.signal,
-        onEvent: (event: StreamEvent) => {
-          clearTimeoutOnce();
-          updateDraft((prev) => prev && reduceDraft(prev, event));
-        },
-      });
-    } catch (err) {
-      const aborted = controller.signal.aborted;
-      const reason = aborted && controller.signal.reason ? String(controller.signal.reason) : null;
-      const message =
-        reason === 'timeout'
-          ? 'The agent took too long to respond (60 s). Try again.'
-          : err instanceof Error
-          ? err.message
-          : 'Stream failed';
-      updateDraft((prev) => (prev ? { ...prev, phase: 'error', error: message } : prev));
-    } finally {
-      clearTimeoutOnce();
-      abortRef.current = null;
-      const finalDraft = draftRef.current;
-      onSettled?.({
-        text: finalDraft?.text ?? '',
-        toolNames: finalDraft?.tools.map((t) => t.name) ?? [],
-        phase: finalDraft?.phase ?? 'done',
-        error: finalDraft?.error,
-      });
-    }
-  }, [updateDraft]);
+      await new Promise<void>((resolve) => {
+        const finish = (phase: StreamPhase) => {
+          if (settled) return;
+          settled = true;
+          onSettled?.({
+            text: assistantMessage?.content ?? '',
+            phase,
+            error: errorMsg,
+            session,
+            assistantMessage,
+          });
+          resolve();
+        };
 
-  /**
-   * Show a "thinking" tool chip BEFORE the SSE stream starts. Returns a `complete()` callback
-   * that flips the chip to done. Useful for slow preflight work like multipart photo upload.
-   */
-  const seedThinking = useCallback(
-    (toolName: string): (() => void) => {
-      const tid = newId();
-      updateDraft((prev) => ({
-        id: prev?.id ?? newId(),
-        text: prev?.text ?? '',
-        tools: [...(prev?.tools ?? []), { id: tid, name: toolName, state: 'running' }],
-        phase: 'tool_running',
-      }));
-      return () => {
-        updateDraft((prev) =>
-          prev
-            ? {
-                ...prev,
-                tools: prev.tools.map((t) =>
-                  t.id === tid ? { ...t, state: 'done' as const } : t,
-                ),
+        getAuthToken()
+          .then((token) => {
+            const ws = new WebSocket(chatWsUrl(token));
+            wsRef.current = ws;
+
+            ws.onopen = () =>
+              ws.send(
+                JSON.stringify({
+                  session_id: sessionId,
+                  content,
+                  image_path: imagePath ?? null,
+                }),
+              );
+
+            ws.onmessage = (e) => {
+              let ev: ChatWsEvent;
+              try {
+                ev = JSON.parse(e.data);
+              } catch {
+                return;
               }
-            : prev,
-        );
-      };
+              switch (ev.type) {
+                case 'session':
+                  session = {
+                    id: ev.session_id,
+                    title: ev.session_title,
+                    isNew: ev.is_new_session,
+                    createdAt: ev.session_created_at,
+                  };
+                  break;
+                case 'tool':
+                  updateDraft((d) =>
+                    d ? { ...d, phase: 'thinking', tool: ev.name } : { ...thinkingDraft(), tool: ev.name },
+                  );
+                  break;
+                case 'message':
+                  assistantMessage = ev.message;
+                  updateDraft({
+                    id: draftRef.current?.id ?? newId(),
+                    text: ev.message.content,
+                    phase: 'done',
+                  });
+                  break;
+                case 'title':
+                  // LLM-refined title arrives just before 'done'; fold it into the session info
+                  // so onSettled writes the nice title into the conversations cache + header.
+                  if (session) session = { ...session, title: ev.title };
+                  break;
+                case 'error':
+                  errorMsg = ev.message;
+                  updateDraft((d) =>
+                    d
+                      ? { ...d, phase: 'error', tool: undefined, error: ev.message }
+                      : { ...thinkingDraft(), phase: 'error', error: ev.message },
+                  );
+                  finish('error');
+                  ws.close();
+                  break;
+                case 'done':
+                  finish('done');
+                  ws.close();
+                  break;
+              }
+            };
+
+            ws.onerror = () => {
+              if (!errorMsg) errorMsg = 'Connection problem — please try again.';
+            };
+
+            ws.onclose = () => {
+              wsRef.current = null;
+              if (settled) return;
+              if (manualStopRef.current) {
+                updateDraft(null);
+                finish('idle');
+                return;
+              }
+              // Closed before a clean done/error (e.g. server dropped the socket).
+              const msg = errorMsg ?? 'The connection closed before the reply finished. Try again.';
+              errorMsg = msg;
+              updateDraft((d) => (d ? { ...d, phase: 'error', tool: undefined, error: msg } : d));
+              finish('error');
+            };
+          })
+          .catch(() => {
+            errorMsg = 'Could not authenticate the chat connection. Please sign in again.';
+            updateDraft((d) => (d ? { ...d, phase: 'error', error: errorMsg } : d));
+            finish('error');
+          });
+      });
     },
     [updateDraft],
   );
 
+  /** Pre-show the "Thinking…" bubble before the send call (e.g. during a slow photo upload). */
+  const seedThinking = useCallback((): (() => void) => {
+    updateDraft((prev) => prev ?? thinkingDraft());
+    return () => {};
+  }, [updateDraft]);
+
   const stop = useCallback(() => {
-    abortRef.current?.abort();
+    manualStopRef.current = true;
+    wsRef.current?.close();
   }, []);
 
   const clearDraft = useCallback(() => updateDraft(null), [updateDraft]);
 
   return { draft, send, seedThinking, stop, clearDraft };
-}
-
-function reduceDraft(prev: DraftMessage, event: StreamEvent): DraftMessage {
-  switch (event.type) {
-    case 'start':
-      return { ...prev, phase: prev.phase === 'tool_running' ? prev.phase : 'thinking' };
-    case 'thinking':
-      return { ...prev, phase: prev.phase === 'tool_running' ? prev.phase : 'thinking' };
-    case 'tool_call': {
-      const name = String(event.data.name ?? 'tool');
-      const argsPreview = event.data.args_preview as string | undefined;
-      const tools = upsertTool(prev.tools, name, { state: 'running', argsPreview });
-      return { ...prev, phase: 'tool_running', tools };
-    }
-    case 'tool_result': {
-      const name = String(event.data.name ?? 'tool');
-      const summary = event.data.summary as string | undefined;
-      const tools = upsertTool(prev.tools, name, { state: 'done', summary });
-      return { ...prev, phase: 'streaming', tools };
-    }
-    case 'token': {
-      const delta = String(event.data.delta ?? '');
-      return { ...prev, phase: 'streaming', text: prev.text + delta };
-    }
-    case 'error':
-      return { ...prev, phase: 'error', error: String(event.data.message ?? 'error') };
-    case 'done': {
-      const text = (event.data.text as string | undefined) ?? prev.text;
-      return { ...prev, phase: 'done', text };
-    }
-    default:
-      return prev;
-  }
-}
-
-function upsertTool(
-  tools: ToolEvent[],
-  name: string,
-  patch: Partial<Omit<ToolEvent, 'id' | 'name'>>,
-): ToolEvent[] {
-  const idx = tools.findIndex((t) => t.name === name && t.state === 'running');
-  if (idx === -1) {
-    return [...tools, { id: newId(), name, state: 'running', ...patch }];
-  }
-  const next = [...tools];
-  next[idx] = { ...next[idx], ...patch };
-  return next;
 }

@@ -1,22 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Dumbbell, PanelLeftClose, PanelLeftOpen, Sparkles } from 'lucide-react';
+import { Dumbbell, Sparkles } from 'lucide-react';
 
 import {
-  createConversation,
   listMessages,
   uploadPhoto,
   type Conversation,
   type Message,
 } from '@/lib/api/chat';
 import { useAuthStore } from '@/stores/authStore';
-import { useUiStore } from '@/stores/uiStore';
 import { useConversations } from '@/hooks/useConversations';
-import { Button } from '@/components/ui/button';
-import { ConversationSidebar } from './ConversationSidebar';
 import { MessageList, MessageListSkeleton } from './MessageList';
 import { Composer } from './Composer';
 import { useStreamingChat } from './useStreamingChat';
@@ -28,19 +24,12 @@ function formatError(err: unknown): string {
   return 'Unknown error';
 }
 
-/** Mirrors backend `_auto_title_from` — keep slash commands intact. */
-function autoTitleFrom(text: string, maxLen = 50): string {
-  const cleaned = text.trim().split('\n')[0].trim();
-  if (!cleaned) return 'New chat';
-  return cleaned.length > maxLen ? cleaned.slice(0, maxLen - 1).trimEnd() + '…' : cleaned;
-}
-
 const EXAMPLE_PROMPTS: Array<{ label: string; text: string }> = [
   { label: 'Quick log', text: 'Log my breakfast: 2 scrambled eggs, toast and a black coffee' },
-  { label: "Today's totals", text: '/macros' },
+  { label: "Today's totals", text: 'What are my macros today?' },
   { label: 'Recipe ideas', text: 'Suggest a high-protein vegetarian dinner under 700 kcal' },
-  { label: 'Photo analysis', text: 'Analyse this photo of my lunch and tell me the macros' },
-  { label: 'Weekly check-in', text: '/weekly' },
+  { label: 'Calories left', text: 'How many calories do I have left today?' },
+  { label: 'Weekly check-in', text: 'How did I do this week?' },
   { label: 'Plan tomorrow', text: 'Plan three meals for tomorrow that hit my goal' },
 ];
 
@@ -73,43 +62,53 @@ export function ChatView() {
   const displayName = useAuthStore((s) => s.displayName);
   const authReady = useAuthStore((s) => s.ready);
   const uid = useAuthStore((s) => s.uid);
-  const chatSidebarCollapsed = useUiStore((s) => s.chatSidebarCollapsed);
-  const toggleChatSidebar = useUiStore((s) => s.toggleChatSidebar);
 
-  // Shared hook (also used by History tab); prefetched in AuthProvider on boot.
+  // Shared hook; prefetched in AuthProvider on boot. Also drives the sidebar "Recents" list.
   const conversations = useConversations();
   const currentConversation = conversations.data?.find((c) => c.id === selectedId) ?? null;
   // Skip the marketing-y hero block for anyone who already has past chats — they don't need
   // the welcome copy every time they hit "New chat".
   const isReturningUser = (conversations.data?.length ?? 0) > 0;
 
+  // Returning-user greeting: pick one at random per mount so the empty state feels alive.
+  const firstName = displayName?.split(' ')[0];
+  const greetings = useMemo(
+    () =>
+      firstName
+        ? [
+            `Welcome back, ${firstName}.`,
+            `Hey ${firstName} — what are we tracking today?`,
+            `Good to see you, ${firstName}.`,
+            `Ready when you are, ${firstName}.`,
+            `Let's hit your goals today, ${firstName}.`,
+            `What did you eat today, ${firstName}?`,
+          ]
+        : [
+            'Ready when you are.',
+            'What are we tracking today?',
+            'Let’s log something delicious.',
+            'What did you eat today?',
+            'Good to see you.',
+            'Let’s hit your goals today.',
+          ],
+    [firstName],
+  );
+  // Lazy initializer → stable across re-renders; re-randomizes only on a fresh mount.
+  const [greetingSeed] = useState(() => Math.floor(Math.random() * 1_000_000));
+  const greeting = greetings[greetingSeed % greetings.length];
+
   const messages = useQuery({
     queryKey: ['conversation', selectedId, 'messages'],
     queryFn: () => listMessages(selectedId!),
-    // Wait for auth to be ready so the request goes out with a valid token.
-    // Without this guard the query fires on page load before Firebase resolves the session.
-    enabled: selectedId !== null && authReady && !!uid,
+    // Guards, in order:
+    // - selectedId !== null && selectedId > 0: skip the empty hero AND the optimistic temp
+    //   session (negative id) that has no server row yet — fetching it would 404.
+    // - authReady && uid: wait for Firebase so the request carries a valid token.
+    // - pendingUserText === null: don't fetch while a send is in-flight; the optimistic cache
+    //   write in onSettled is the source of truth until then.
+    enabled:
+      selectedId !== null && selectedId > 0 && authReady && !!uid && pendingUserText === null,
   });
-
-  // Clicking "New chat" must be instant — no API round-trip. Navigate to `/`, and let
-  // `ensureSession()` create the row lazily on first send. `/` itself stays as the empty
-  // hero forever; we deliberately don't auto-redirect to the latest conversation.
-  const handleNewChat = () => {
-    clearDraft();
-    setPendingUserText(null);
-    setPendingImagePath(null);
-    setPendingImagePreviewUrl(null);
-    navigate('/');
-  };
-
-  const ensureSession = async (): Promise<number> => {
-    if (selectedId !== null) return selectedId;
-    const c = await createConversation();
-    queryClient.setQueryData<Conversation[]>(['conversations'], (prev) => [c, ...(prev ?? [])]);
-    // Push to URL so refresh keeps the conversation. `replace` so back button doesn't strand you.
-    navigate(`/c/${c.id}`, { replace: true });
-    return c.id;
-  };
 
   const handleSend = async (text: string, file?: File | null) => {
     let imagePath: string | null = null;
@@ -118,14 +117,14 @@ export function ChatView() {
 
     if (file) {
       previewUrl = URL.createObjectURL(file);
-      // Show the user's message + an "Analyzing the photo…" thinking chip BEFORE the slow
-      // /photo/scan request returns, so the user gets immediate feedback.
+      // Show the user's message + a "Thinking…" bubble BEFORE the slow /photo/scan request
+      // returns, so the user gets immediate feedback.
       if (!composedText.trim()) {
         composedText = 'What is in this photo? Estimate the nutrition and log it if helpful.';
       }
       setPendingUserText(composedText);
       setPendingImagePreviewUrl(previewUrl);
-      const finishAnalysis = seedThinking('analyze_image_tool');
+      const finishAnalysis = seedThinking();
       try {
         const photo = await uploadPhoto(file, { commit: false });
         imagePath = photo.image_path;
@@ -143,80 +142,94 @@ export function ChatView() {
 
     if (!composedText.trim() && !imagePath) return;
 
-    const sid = await ensureSession();
-    // pendingUserText + previewUrl were set earlier (before upload) so the user could see
-    // the placeholder while Gemini Vision was working. Just make sure they're current.
+    // A brand-new chat has no session yet. The single send call below creates the real session
+    // server-side; we DON'T navigate to a placeholder URL. Instead we render the chat in place
+    // from the pending state (the view shows whenever pendingUserText/draft is set, regardless of
+    // the URL), then navigate to /c/:realId once the backend returns the real id. This avoids the
+    // remount that a navigate to a temp /c/:id triggers — which would drop the in-flight state and
+    // bounce the user back to the hero until the request finished.
+    const isNewChat = selectedId === null;
+    const originSessionId = selectedId; // real id when continuing an existing chat, else null
+
+    // Immediate feedback: show the user's bubble + a "Thinking…" agent bubble right away,
+    // in this same component instance.
     setPendingUserText(composedText);
     setPendingImagePath(imagePath);
-    if (!pendingImagePreviewUrl && previewUrl) setPendingImagePreviewUrl(previewUrl);
+    if (previewUrl) setPendingImagePreviewUrl(previewUrl);
+    seedThinking();
 
     await send({
-      sessionId: sid,
+      sessionId: originSessionId,
       content: composedText,
       imagePath,
-      onSettled: ({ text: finalAssistant, phase }) => {
-        // If the stream errored, leave the inline error on the draft bubble — DON'T write a
-        // bogus empty assistant row to the cache. The user can hit Retry without a corpse.
-        if (phase === 'error') {
+      onSettled: (result) => {
+        const releasePreview = () => {
+          if (previewUrl) setTimeout(() => URL.revokeObjectURL(previewUrl), 1000);
+        };
+
+        if (result.phase === 'idle') {
+          // User hit Stop — cancel cleanly: drop the pending message + thinking bubble entirely,
+          // reverting to the prior state (cached messages for an existing chat, hero for a new one).
           setPendingUserText(null);
           setPendingImagePath(null);
-          if (previewUrl) setTimeout(() => URL.revokeObjectURL(previewUrl), 1000);
+          releasePreview();
+          setPendingImagePreviewUrl(null);
+          clearDraft();
+          return;
+        }
+
+        if (result.phase === 'error' || !result.session || !result.assistantMessage) {
+          // Keep pendingUserText + the error draft so the user still sees their message and the
+          // inline error and can retry. We never navigated away, so there's nothing to roll back.
+          setPendingImagePath(null);
+          releasePreview();
           setPendingImagePreviewUrl(null);
           return;
         }
 
-        // Optimistic cache update: append the user + assistant turn directly so the page doesn't
-        // unmount/refetch (which used to cause a visible flicker). The next genuine query (route
-        // change, page reload) will replace this with the canonical server data. NB: `text` here
-        // comes from the SendResult snapshot — reading `draft?.text` from this scope's closure
-        // would be stale.
-        queryClient.setQueryData<Message[]>(
-          ['conversation', sid, 'messages'],
-          (prev = []) => {
-            // The messages query may have already fetched the user message from the DB
-            // (the backend commits it before streaming starts), so only append it if
-            // it's not already present — otherwise we'd show two identical user bubbles.
-            const hasUserMsg = prev.some((m) => m.role === 'user' && m.content === composedText);
-            const base = hasUserMsg
-              ? prev
-              : [
-                  ...prev,
-                  {
-                    id: -Date.now(),
-                    role: 'user' as const,
-                    content: composedText,
-                    image_path: imagePath,
-                    created_at: new Date().toISOString(),
-                  },
-                ];
-            return [
-              ...base,
-              {
-                id: -Date.now() - 1,
-                role: 'assistant' as const,
-                content: finalAssistant,
-                image_path: null,
-                created_at: new Date().toISOString(),
-              },
-            ];
-          },
-        );
-        // Don't refetch the sessions list — instead, optimistically update the local cache
-        // with the same auto-title the backend computes (see chat.py::_auto_title_from). This
-        // avoids a round-trip + stale-while-revalidate flash on every stream completion.
+        const realId = result.session.id;
+
+        // Write the canonical messages cache for the REAL session first (fresh data), so once
+        // selectedId becomes realId the messages query is satisfied and never fires a GET.
+        queryClient.setQueryData<Message[]>(['conversation', realId, 'messages'], (prev = []) => {
+          const hasUserMsg = prev.some((m) => m.role === 'user' && m.content === composedText);
+          const base = hasUserMsg
+            ? prev
+            : [
+                ...prev,
+                {
+                  id: -Date.now(),
+                  role: 'user' as const,
+                  content: composedText,
+                  image_path: imagePath,
+                  created_at: new Date().toISOString(),
+                },
+              ];
+          return [...base, result.assistantMessage!];
+        });
+
+        // Reconcile the conversations list: for a new chat, prepend the real session (with its
+        // auto-title) so it appears in the sidebar; for an existing chat, refresh the title.
         queryClient.setQueryData<Conversation[]>(['conversations'], (prev = []) =>
-          prev.map((c) =>
-            c.id === sid && (c.title ?? '').trim().toLowerCase() === 'new chat'
-              ? { ...c, title: autoTitleFrom(composedText) }
-              : c,
-          ),
+          isNewChat
+            ? [
+                {
+                  id: realId,
+                  title: result.session!.title,
+                  created_at: result.session!.createdAt,
+                },
+                ...prev.filter((c) => c.id !== realId),
+              ]
+            : prev.map((c) => (c.id === realId ? { ...c, title: result.session!.title } : c)),
         );
+
+        // Now move to the real session URL. The messages cache is already populated, so the
+        // chat stays on screen seamlessly (no hero flash, no refetch).
+        if (selectedId !== realId) navigate(`/c/${realId}`, { replace: isNewChat });
+
         setPendingUserText(null);
         setPendingImagePath(null);
-        if (previewUrl) {
-          // The bubble image now points at the backend URL (built from `image_path`); release blob.
-          setTimeout(() => URL.revokeObjectURL(previewUrl), 1000);
-        }
+        releasePreview();
         setPendingImagePreviewUrl(null);
         clearDraft();
       },
@@ -237,27 +250,8 @@ export function ChatView() {
 
   return (
     <div className="flex h-full">
-      {!chatSidebarCollapsed && (
-        <ConversationSidebar
-          conversations={conversations.data ?? []}
-          selectedId={selectedId}
-          onSelect={(id) => {
-            navigate(`/c/${id}`);
-            clearDraft();
-            setPendingUserText(null);
-          }}
-          onNew={handleNewChat}
-        />
-      )}
       <div className="flex flex-1 flex-col">
         <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Button variant="ghost" size="icon" onClick={toggleChatSidebar} title="Toggle conversations">
-            {chatSidebarCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </Button>
           <span className="truncate text-sm font-medium" title={currentConversation?.title}>
             {selectedId
               ? ((currentConversation?.title ?? '').trim() || 'Untitled chat')
@@ -291,12 +285,10 @@ export function ChatView() {
               // Tight empty state for users who already have past chats — no marketing-y hero,
               // just a friendly "ready when you are" + composer + a couple of suggestion chips.
               <>
-                <p className="mb-4 text-sm text-muted-foreground">
-                  {displayName
-                    ? `Welcome back, ${displayName.split(' ')[0]}. What would you like to track today?`
-                    : 'Ready when you are.'}
-                </p>
-                <div className="w-full max-w-2xl">
+                <h1 className="mb-6 text-center text-2xl font-semibold tracking-tight md:text-3xl">
+                  {greeting}
+                </h1>
+                <div className="w-full max-w-4xl">
                   <Composer
                     disabled={false}
                     isStreaming={false}
@@ -306,7 +298,7 @@ export function ChatView() {
                     onPrefillConsumed={() => setPrefill(null)}
                   />
                 </div>
-                <div className="mt-4 flex w-full max-w-2xl flex-wrap justify-center gap-2">
+                <div className="mt-4 flex w-full max-w-4xl flex-wrap justify-center gap-2">
                   {EXAMPLE_PROMPTS.slice(0, 4).map((p) => (
                     <button
                       key={p.text}
@@ -333,7 +325,7 @@ export function ChatView() {
                     suggestion below or just type freely.
                   </p>
                 </div>
-                <div className="w-full max-w-2xl">
+                <div className="w-full max-w-4xl">
                   <Composer
                     disabled={false}
                     isStreaming={false}
@@ -343,7 +335,7 @@ export function ChatView() {
                     onPrefillConsumed={() => setPrefill(null)}
                   />
                 </div>
-                <div className="mt-6 grid w-full max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="mt-6 grid w-full max-w-4xl grid-cols-1 gap-2 sm:grid-cols-2">
                   {EXAMPLE_PROMPTS.map((p) => (
                     <button
                       key={p.text}

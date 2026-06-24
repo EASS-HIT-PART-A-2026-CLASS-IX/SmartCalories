@@ -3,9 +3,11 @@
   "nav": {
     "chat": "צ׳אט",
     "diary": "יומן",
-    "history": "היסטוריה",
-    "insights": "תובנות",
-    "profile": "פרופיל"
+    "recents": "אחרונים",
+    "searchChats": "חיפוש שיחות",
+    "loadMore": "טען עוד",
+    "darkMode": "מצב כהה",
+    "apiKey": "מפתח API"
   },
   "actions": {
     "newChat": "צ׳אט חדש",

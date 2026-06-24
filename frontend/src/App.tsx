@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthProvider } from '@/components/AuthProvider';
+import { HealthGate } from '@/components/HealthGate';
 import { applyLanguage, applyTheme, usePrefsStore } from '@/stores/prefsStore';
 
 const queryClient = new QueryClient({
@@ -16,10 +17,7 @@ const queryClient = new QueryClient({
 
 import { ChatView } from '@/features/chat/ChatView';
 import DiaryRoute from '@/routes/diary';
-import HistoryRoute from '@/routes/history';
-import InsightsRoute from '@/routes/insights';
 import LoginRoute from '@/routes/login';
-import ProfileRoute from '@/routes/profile';
 
 export default function App() {
   const { i18n } = useTranslation();
@@ -37,23 +35,26 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginRoute />} />
-            <Route element={<AppShell />}>
-              <Route index element={<ChatView />} />
-              <Route path="c/:sessionId" element={<ChatView />} />
-              <Route path="diary" element={<DiaryRoute />} />
-              <Route path="history" element={<HistoryRoute />} />
-              <Route path="insights" element={<InsightsRoute />} />
-              <Route path="profile" element={<ProfileRoute />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-        <Toaster richColors position="top-center" />
-      </AuthProvider>
+      {/* Block the app until the backend answers /health — the free-tier API sleeps when idle
+          and needs a cold-start window. HealthGate shows a welcoming "waking up" screen meanwhile. */}
+      <HealthGate>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginRoute />} />
+              <Route element={<AppShell />}>
+                {/* Same `key` forces React to reuse the single ChatView instance when navigating
+                    between / and /c/:id, so in-flight streaming state survives the URL change. */}
+                <Route index element={<ChatView key="chat" />} />
+                <Route path="c/:sessionId" element={<ChatView key="chat" />} />
+                <Route path="diary" element={<DiaryRoute />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+          <Toaster richColors position="top-center" />
+        </AuthProvider>
+      </HealthGate>
     </QueryClientProvider>
   );
 }

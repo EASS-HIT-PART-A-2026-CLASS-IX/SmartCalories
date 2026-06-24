@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useTranslation } from 'react-i18next';
-import { Check, ChevronDown, ChevronRight, Copy, Dumbbell, Loader2 } from 'lucide-react';
+import { Check, Copy, Dumbbell, Loader2 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -10,21 +9,28 @@ import { useAuthStore } from '@/stores/authStore';
 import { env } from '@/lib/env';
 import type { DraftMessage } from './useStreamingChat';
 
-const TOOL_LABEL_KEY: Record<string, string> = {
-  log_food: 'tools.logging',
-  get_macros_today: 'tools.checking_macros',
-  get_remaining_budget: 'tools.checking_budget',
-  add_water: 'tools.logging_water',
-  set_goal: 'tools.updating_goal',
-  get_user_goals: 'tools.checking_goal',
-  compute_tdee: 'tools.computing_tdee',
-  analyze_image_tool: 'tools.analyzing_photo',
-  get_streak: 'tools.checking_streak',
+/** Friendly present-tense labels for the live "Thinking" indicator, keyed by tool name. */
+const TOOL_LABELS: Record<string, string> = {
+  log_food: 'Logging your food',
+  list_recent_foods: 'Looking up your entries',
+  update_food: 'Updating your entry',
+  delete_food: 'Removing your entry',
+  get_macros_today: 'Checking today’s macros',
+  get_remaining_budget: 'Checking your budget',
+  get_streak: 'Checking your streak',
+  add_water: 'Logging water',
+  get_user_goals: 'Checking your goals',
+  set_goal: 'Updating your goals',
+  compute_tdee: 'Crunching your TDEE',
+  analyze_image_tool: 'Analyzing your photo',
+  search_nutrition: 'Searching nutrition data',
+  web_search: 'Searching the web',
 };
 
-const StreamingCursor = () => (
-  <span className="ms-0.5 inline-block h-3 w-2 translate-y-0.5 animate-pulse-soft bg-foreground" />
-);
+function toolLabel(name?: string): string {
+  if (!name) return 'Thinking…';
+  return (TOOL_LABELS[name] ?? name.replace(/_/g, ' ')) + '…';
+}
 
 export interface BubbleProps {
   role: 'user' | 'assistant';
@@ -52,19 +58,17 @@ function buildImageUrl(
 
 export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl }: BubbleProps) {
   const isUser = role === 'user';
-  const isStreaming = draft && draft.phase !== 'done' && draft.phase !== 'error';
-  // Show the spinner whenever we're mid-stream with no text yet — covers starting, thinking,
-  // tool_running, and early streaming before the first token arrives.
-  const showThinking = !!isStreaming && !text;
+  const isPending = draft && draft.phase !== 'done' && draft.phase !== 'error';
+  // Show the "Thinking…" spinner while the agent turn is in flight and no text has arrived yet.
+  const showThinking = !!isPending && !text;
   const uid = useAuthStore((s) => s.uid);
   const idToken = useAuthStore((s) => s.idToken);
 
   const imageUrl = imagePreviewUrl ?? buildImageUrl(imagePath, uid, idToken);
 
-  // Empty assistant body once the stream is done is a model glitch (Gemini occasionally
+  // Empty assistant body once the turn is done is a model glitch (Gemini occasionally
   // ends a tool-using turn with no text). Surface a clear fallback instead of an empty bubble.
-  const isEmptyDoneAssistant =
-    !isUser && draft?.phase === 'done' && !text.trim() && (draft?.tools.length ?? 0) > 0;
+  const isEmptyDoneAssistant = !isUser && draft?.phase === 'done' && !text.trim();
 
   return (
     <div
@@ -78,8 +82,7 @@ export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl }:
           <Dumbbell className="h-4.5 w-4.5" />
         </div>
       )}
-      <div className={cn('max-w-[78ch] space-y-2', isUser && 'order-1')}>
-        {!isUser && draft && <ToolStrip draft={draft} />}
+      <div className={cn('max-w-[90ch] space-y-2', isUser && 'order-1')}>
         {imageUrl && (
           <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
             <img
@@ -96,8 +99,8 @@ export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl }:
           )}
         >
           {showThinking && !text ? (
-            <span className="inline-flex items-center gap-2 text-foreground/70">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" /> Thinking…
+            <span className="inline-flex items-center gap-2 text-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" /> {toolLabel(draft?.tool)}
             </span>
           ) : isEmptyDoneAssistant ? (
             <span className="text-sm italic text-muted-foreground">
@@ -106,75 +109,16 @@ export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl }:
           ) : (
             <div className="prose prose-base dark:prose-invert max-w-none">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-              {isStreaming && <StreamingCursor />}
             </div>
           )}
         </div>
-        {!isUser && !isStreaming && text && <CopyAction text={text} />}
+        {!isUser && !isPending && text && <CopyAction text={text} />}
         {draft?.phase === 'error' && (
           <div className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
             <span>⚠</span> {draft.error ?? 'Stream failed. Please try again.'}
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function ToolStrip({ draft }: { draft: DraftMessage }) {
-  const { t } = useTranslation();
-  if (!draft.tools.length) return null;
-  const label = (n: string) => (TOOL_LABEL_KEY[n] ? t(TOOL_LABEL_KEY[n]) : n.replace(/_/g, ' '));
-  return (
-    <div className="flex flex-wrap gap-2">
-      {draft.tools.map((tool) => (
-        <ToolChip
-          key={tool.id}
-          state={tool.state}
-          label={label(tool.name)}
-          summary={tool.summary}
-        />
-      ))}
-    </div>
-  );
-}
-
-function ToolChip({
-  state,
-  label,
-  summary,
-}: {
-  state: 'running' | 'done';
-  label: string;
-  summary?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-full border bg-secondary text-secondary-foreground text-xs">
-      <button
-        type="button"
-        onClick={() => summary && setOpen(!open)}
-        className="flex items-center gap-1.5 px-3 py-1"
-      >
-        {state === 'running' ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <Check className="h-3 w-3 text-primary" />
-        )}
-        <span>{label}</span>
-        {summary ? (
-          open ? (
-            <ChevronDown className="h-3 w-3 opacity-60" />
-          ) : (
-            <ChevronRight className="h-3 w-3 opacity-60" />
-          )
-        ) : null}
-      </button>
-      {open && summary && (
-        <pre className="max-w-md whitespace-pre-wrap break-all px-3 pb-2 text-[10px] text-muted-foreground">
-          {summary}
-        </pre>
-      )}
     </div>
   );
 }
