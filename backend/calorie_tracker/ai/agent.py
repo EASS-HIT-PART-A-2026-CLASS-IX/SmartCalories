@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 
 # litellm model-id prefixes per provider. Defaults mirror the previous pydantic-ai chains.
+# Anthropic (Claude) is paid — no free tier — but when ANTHROPIC_API_KEY is set it's tried first.
+# `-latest` aliases avoid hard-coding dated ids; override via ANTHROPIC_FALLBACK_MODELS.
+_DEFAULT_ANTHROPIC_CHAIN = (
+    "claude-3-5-haiku-latest",
+    "claude-3-5-sonnet-latest",
+)
 _DEFAULT_GEMINI_CHAIN = (
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
@@ -87,6 +93,12 @@ def _build_model_chain() -> list[Model]:
     settings = get_settings()
     models: list[Model] = []
 
+    # Claude first when configured (paid; preferred quality), then the free-tier providers.
+    if settings.anthropic_api_key:
+        chain = settings.anthropic_fallback_models or list(_DEFAULT_ANTHROPIC_CHAIN)
+        models += [
+            _lite(f"anthropic/{name}", api_key=settings.anthropic_api_key) for name in chain
+        ]
     if settings.gemini_api_key:
         chain = settings.gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN)
         models += [_lite(f"gemini/{name}", api_key=settings.gemini_api_key) for name in chain]
@@ -118,8 +130,8 @@ def get_default_model() -> Model:
     models = _build_model_chain()
     if not models:
         raise RuntimeError(
-            "No LLM provider configured. Set GEMINI_API_KEY / GROQ_API_KEY / "
-            "OPENROUTER_API_KEY / OLLAMA_BASE_URL."
+            "No LLM provider configured. Set ANTHROPIC_API_KEY / GEMINI_API_KEY / "
+            "GROQ_API_KEY / OPENROUTER_API_KEY / OLLAMA_BASE_URL."
         )
     return models[0] if len(models) == 1 else _FallbackModel(models)
 

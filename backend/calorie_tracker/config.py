@@ -51,6 +51,14 @@ class Settings(BaseSettings):
         description="Firebase Admin service-account JSON as a string (alternative to a file path). Takes precedence over firebase_credentials_path.",
     )
 
+    # Anthropic (Claude) — paid (no free tier). When set, Claude is tried FIRST in the chat
+    # chain, ahead of the free-tier providers below. Get a key at https://console.anthropic.com.
+    anthropic_api_key: str | None = None
+    anthropic_fallback_models: list[str] | None = Field(
+        default=None,
+        description="Comma-separated Anthropic model names tried in order (e.g. claude-3-5-haiku-latest). Defaults to a haiku→sonnet pair.",
+    )
+
     gemini_api_key: str | None = None
     gemini_fallback_models: list[str] | None = Field(
         default=None,
