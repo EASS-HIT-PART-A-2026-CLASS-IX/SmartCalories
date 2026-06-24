@@ -61,10 +61,10 @@ class UserGoals(SQLModel, table=True):
 
 
 class UserLLMKey(SQLModel, table=True):
-    """A user-supplied LLM provider API key (currently Gemini), encrypted at rest.
+    """User-supplied LLM provider API keys (Anthropic and/or Gemini), encrypted at rest.
 
-    `gemini_key_enc` holds a Fernet token (see services/secrets.py), never the raw key.
-    `gemini_key_last4` is stored separately so the UI can show a masked hint without decrypting.
+    `*_key_enc` holds a Fernet token (see services/secrets.py), never the raw key.
+    `*_key_last4` is stored separately so the UI can show a masked hint without decrypting.
     """
 
     __tablename__ = "user_llm_key"
@@ -72,6 +72,8 @@ class UserLLMKey(SQLModel, table=True):
     user_uid: str = Field(foreign_key="user.uid", primary_key=True, max_length=128)
     gemini_key_enc: str | None = Field(default=None, max_length=512)
     gemini_key_last4: str | None = Field(default=None, max_length=8)
+    anthropic_key_enc: str | None = Field(default=None, max_length=512)
+    anthropic_key_last4: str | None = Field(default=None, max_length=8)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

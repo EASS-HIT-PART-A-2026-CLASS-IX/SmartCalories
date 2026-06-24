@@ -184,23 +184,28 @@ def generate_session_title(first_user: str, first_assistant: str = "") -> str | 
     return title or None
 
 
-def _model_for_user(user_gemini_key: str | None) -> Model:
-    """When the user supplied their own Gemini key, try THEIR Gemini models first (their quota),
-    then fall through to the shared free-tier chain. Otherwise use the shared chain as-is."""
-    if not user_gemini_key:
+def _model_for_user(user_anthropic_key: str | None, user_gemini_key: str | None) -> Model:
+    """Prefer the user's OWN keys (their quota) — Anthropic first, then Gemini — before falling
+    through to the shared free-tier chain. With no personal keys, use the shared chain as-is."""
+    settings = get_settings()
+    user_models: list[Model] = []
+    if user_anthropic_key:
+        chain = settings.anthropic_fallback_models or list(_DEFAULT_ANTHROPIC_CHAIN)
+        user_models += [_lite(f"anthropic/{name}", api_key=user_anthropic_key) for name in chain]
+    if user_gemini_key:
+        chain = settings.gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN)
+        user_models += [_lite(f"gemini/{name}", api_key=user_gemini_key) for name in chain]
+
+    if not user_models:
         return get_default_model()
-    chain = get_settings().gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN)
-    user_models: list[Model] = [
-        _lite(f"gemini/{name}", api_key=user_gemini_key) for name in chain
-    ]
+
     try:
         shared = get_default_model()
     except RuntimeError:
         shared = None
-    if shared is not None:
-        # `shared` may itself be a _FallbackModel; nesting is fine since generate() just delegates.
-        return _FallbackModel([*user_models, shared])
-    return _FallbackModel(user_models) if len(user_models) > 1 else user_models[0]
+    # `shared` may itself be a _FallbackModel; nesting is fine since generate() just delegates.
+    models = [*user_models, shared] if shared is not None else user_models
+    return models[0] if len(models) == 1 else _FallbackModel(models)
 
 
 def build_agent(
@@ -208,6 +213,7 @@ def build_agent(
     user: User,
     *,
     model: Model | None = None,
+    user_anthropic_key: str | None = None,
     user_gemini_key: str | None = None,
 ) -> ToolCallingAgent:
     """Construct a per-request chat agent whose tools close over this session + user.
@@ -222,7 +228,7 @@ def build_agent(
     tools = [*build_request_tools(session, user), WebSearchTool()]
     return ToolCallingAgent(
         tools=tools,
-        model=model or _model_for_user(user_gemini_key),
+        model=model or _model_for_user(user_anthropic_key, user_gemini_key),
         instructions=SYSTEM_PROMPT,
         max_steps=8,
         verbosity_level=LogLevel.ERROR,

@@ -19,14 +19,16 @@ from ..services.secrets import decrypt_secret
 logger = logging.getLogger(__name__)
 
 
-def _user_gemini_key(session: Session, user: User) -> str | None:
-    """The signed-in user's own Gemini key (decrypted), or None. Guests never have one."""
+def _user_llm_keys(session: Session, user: User) -> tuple[str | None, str | None]:
+    """The signed-in user's own (anthropic_key, gemini_key), decrypted. Guests never have keys."""
     if user.is_anonymous:
-        return None
+        return None, None
     row = session.get(UserLLMKey, user.uid)
-    if row is None or not row.gemini_key_enc:
-        return None
-    return decrypt_secret(row.gemini_key_enc)
+    if row is None:
+        return None, None
+    anthropic = decrypt_secret(row.anthropic_key_enc) if row.anthropic_key_enc else None
+    gemini = decrypt_secret(row.gemini_key_enc) if row.gemini_key_enc else None
+    return anthropic, gemini
 
 
 def _friendly_provider_error(exc: Exception, *, has_own_key: bool, is_anonymous: bool) -> str:
@@ -38,8 +40,8 @@ def _friendly_provider_error(exc: Exception, *, has_own_key: bool, is_anonymous:
         if has_own_key:
             return " Your personal key is also at its limit — please wait a moment and retry."
         if is_anonymous:
-            return " Sign in and add your own free Gemini API key (in Settings) to skip the shared limits."
-        return " Tip: add your own free Gemini API key in Settings to skip the shared limits."
+            return " Sign in and add your own API key (Gemini or Claude, in Settings) to skip the shared limits."
+        return " Tip: add your own API key (Gemini or Claude) in Settings to skip the shared limits."
 
     is_auth = any(
         k in text
@@ -69,7 +71,7 @@ def _friendly_provider_error(exc: Exception, *, has_own_key: bool, is_anonymous:
 
     if is_auth and has_own_key:
         return (
-            "Your Gemini API key was rejected by Google. Open Settings to re-enter a valid key "
+            "Your API key was rejected by the provider. Open Settings to re-enter a valid key "
             "(or remove it to fall back to the shared models)."
         )
     if is_rate:
@@ -336,11 +338,16 @@ async def _run_agent_turn(
     _maybe_retitle(s, content, session)
 
     task = _build_task(session, s.id, content, image_path)
-    user_key = _user_gemini_key(session, user)
-    agent = build_agent(session, user, user_gemini_key=user_key)
+    user_anthropic, user_gemini = _user_llm_keys(session, user)
+    agent = build_agent(
+        session, user, user_anthropic_key=user_anthropic, user_gemini_key=user_gemini
+    )
 
     raw = await _run_agent_or_raise(
-        agent, task, has_own_key=user_key is not None, is_anonymous=user.is_anonymous
+        agent,
+        task,
+        has_own_key=bool(user_anthropic or user_gemini),
+        is_anonymous=user.is_anonymous,
     )
     text = _clean_agent_text(raw)
 
@@ -445,10 +452,15 @@ async def dispatch_command(
     can short-circuit later. For now it always routes through the agent.
     """
     task = f"User: /{payload.cmd} {payload.text}".strip()
-    user_key = _user_gemini_key(session, user)
-    agent = build_agent(session, user, user_gemini_key=user_key)
+    user_anthropic, user_gemini = _user_llm_keys(session, user)
+    agent = build_agent(
+        session, user, user_anthropic_key=user_anthropic, user_gemini_key=user_gemini
+    )
     raw = await _run_agent_or_raise(
-        agent, task, has_own_key=user_key is not None, is_anonymous=user.is_anonymous
+        agent,
+        task,
+        has_own_key=bool(user_anthropic or user_gemini),
+        is_anonymous=user.is_anonymous,
     )
     return {"text": _clean_agent_text(raw), "cmd": payload.cmd}
 
@@ -534,8 +546,10 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
 
     # --- Stream the agent run, forwarding tool events live ---
     task = _build_task(session, s.id, content, image_path)
-    user_key = _user_gemini_key(session, user)
-    agent = build_agent(session, user, user_gemini_key=user_key)
+    user_anthropic, user_gemini = _user_llm_keys(session, user)
+    agent = build_agent(
+        session, user, user_anthropic_key=user_anthropic, user_gemini_key=user_gemini
+    )
 
     from smolagents.memory import FinalAnswerStep  # local import keeps module load cheap
 
@@ -582,7 +596,9 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
             {
                 "type": "error",
                 "message": _friendly_provider_error(
-                    error_exc, has_own_key=user_key is not None, is_anonymous=user.is_anonymous
+                    error_exc,
+                    has_own_key=bool(user_anthropic or user_gemini),
+                    is_anonymous=user.is_anonymous,
                 ),
             },
         )
