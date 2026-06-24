@@ -63,6 +63,8 @@ export function AppShell() {
   const navCollapsed = useUiStore((s) => s.navCollapsed);
   const toggleNav = useUiStore((s) => s.toggleNav);
   const logout = useLogout();
+  // Guests (Firebase anonymous) and the demo account (uid `demo-…`) can't store API keys.
+  const keysLocked = isAnonymous || !!uid?.startsWith('demo-');
 
   // Conversation list ("Recents"). selectedId comes from the URL.
   const conversations = useConversations();
@@ -270,20 +272,27 @@ export function AppShell() {
       <div className={cn('flex flex-col gap-2 p-3 text-xs', collapsed && 'items-center')}>
         {!collapsed && (
           <>
-            {/* Guests + the demo account (both isAnonymous) can't store keys — show the entry
-                disabled with a hover tooltip explaining they need to sign in. */}
-            {isAnonymous ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-disabled
-                title={t('nav.apiKeyGuestHint')}
-                onClick={(e) => e.preventDefault()}
-                className="cursor-not-allowed justify-start text-muted-foreground/50 hover:bg-transparent hover:text-muted-foreground/50"
-              >
-                <KeyRound className="me-2 h-3.5 w-3.5" />
-                {t('nav.apiKey')}
-              </Button>
+            {/* Guests + the demo account can't store keys — show the entry disabled with a
+                hover tooltip (CSS, not native title) explaining they need to sign in. */}
+            {keysLocked ? (
+              <div className="group relative">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-disabled
+                  onClick={(e) => e.preventDefault()}
+                  className="w-full cursor-not-allowed justify-start text-muted-foreground/50 hover:bg-transparent hover:text-muted-foreground/50"
+                >
+                  <KeyRound className="me-2 h-3.5 w-3.5" />
+                  {t('nav.apiKey')}
+                </Button>
+                <span
+                  role="tooltip"
+                  className="pointer-events-none absolute bottom-full start-0 z-50 mb-1 hidden w-max max-w-[220px] rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-md group-hover:block"
+                >
+                  {t('nav.apiKeyGuestHint')}
+                </span>
+              </div>
             ) : (
               <Button
                 variant="ghost"
