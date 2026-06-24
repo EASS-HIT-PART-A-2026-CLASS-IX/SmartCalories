@@ -1,41 +1,34 @@
-"""Pydantic AI agent for SmartCalories.
+"""smolagents-based chat agent for SmartCalories.
 
-If `GEMINI_API_KEY` is set we use Gemini 2.5 Flash; otherwise we fall back to a
-non-tool-calling TestModel so the package can be imported and exercised without
-contacting any LLM. Tests explicitly override the model via `agent.override()`.
+The chat agent is a smolagents `ToolCallingAgent` (sequential JSON tool calls — NOT a
+code-executing `CodeAgent`, since our tools mutate the user's diary). Tools are built
+per-request so each one closes over the request's DB session + user (see `tools.py`).
+
+Models are driven through LiteLLM. To keep the free-tier resilience the project relied on,
+`_FallbackModel` wraps the Gemini → Groq → OpenRouter → Ollama chain and advances to the next
+provider on any error (rate-limit / 503 / timeout).
+
+Note: the photo-analysis agent in `vision.py` is a separate pydantic-ai structured-output
+agent and is intentionally NOT migrated — the chat agent reaches it via `analyze_image_tool`.
 """
 from __future__ import annotations
 
-import threading
-from dataclasses import dataclass, field
+import logging
+from functools import lru_cache
 
-from pydantic_ai import Agent
-from pydantic_ai.models import Model
-from pydantic_ai.models.test import TestModel
+from smolagents import LiteLLMModel, ToolCallingAgent, WebSearchTool
+from smolagents.models import ChatMessage, Model
+from smolagents.monitoring import LogLevel
 from sqlmodel import Session
 
 from ..config import get_settings
 from ..models import User
-from ..services.cache import AsyncCache
 from .prompts import SYSTEM_PROMPT
 
-
-@dataclass
-class AgentDeps:
-    """Dependencies injected into every tool call. Built per request.
-
-    `db_lock` serializes tools that mutate the SQLModel session: Pydantic AI dispatches
-    tool calls concurrently, but a SQLAlchemy `Session` is not safe for parallel
-    `commit()`s. Each writing tool wraps its body in `with ctx.deps.db_lock:`.
-    """
-
-    session: Session
-    user: User
-    cache: AsyncCache
-    request_id: str = "local"
-    db_lock: threading.RLock = field(default_factory=threading.RLock)
+logger = logging.getLogger(__name__)
 
 
+# litellm model-id prefixes per provider. Defaults mirror the previous pydantic-ai chains.
 _DEFAULT_GEMINI_CHAIN = (
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
@@ -43,122 +36,168 @@ _DEFAULT_GEMINI_CHAIN = (
     "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
 )
-
 _DEFAULT_GROQ_CHAIN = (
     "llama-3.3-70b-versatile",
     "gemma2-9b-it",
 )
-
-# Note: OpenRouter `:free` model availability rotates — these are stable as of 2026-05.
-# Users can override with OPENROUTER_FALLBACK_MODELS env var.
 _DEFAULT_OPENROUTER_CHAIN = (
     "meta-llama/llama-3.3-70b-instruct:free",
     "google/gemma-2-9b-it:free",
 )
 
-
-def _gemini_models(api_key: str, chain: list[str]) -> list[Model]:
-    from pydantic_ai.models.google import GoogleModel
-    from pydantic_ai.providers.google import GoogleProvider
-
-    provider = GoogleProvider(api_key=api_key)
-    return [GoogleModel(name, provider=provider) for name in chain]
+# Per-request timeout (seconds) passed to each LiteLLM call. Bounds how long a stalled provider
+# can block before `_FallbackModel` advances to the next one.
+_REQUEST_TIMEOUT_S = 30
 
 
-def _groq_models(api_key: str, chain: list[str]) -> list[Model]:
-    from pydantic_ai.models.groq import GroqModel
-    from pydantic_ai.providers.groq import GroqProvider
-
-    provider = GroqProvider(api_key=api_key)
-    return [GroqModel(name, provider=provider) for name in chain]
-
-
-def _openrouter_models(api_key: str, chain: list[str]) -> list[Model]:
-    """OpenRouter speaks the OpenAI Chat Completions wire format, so we point Pydantic AI's
-    OpenAIChatModel at https://openrouter.ai/api/v1 with the OpenRouter API key."""
-    from pydantic_ai.models.openai import OpenAIChatModel
-    from pydantic_ai.providers.openai import OpenAIProvider
-
-    provider = OpenAIProvider(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-    return [OpenAIChatModel(name, provider=provider) for name in chain]
+def _lite(model_id: str, **kwargs) -> "LiteLLMModel":
+    # retry=False: don't let smolagents back off + retry rate-limit errors per-model — that would
+    #   compound across the whole chain into a long hang. Instead a 429 raises immediately and
+    #   _FallbackModel advances to the next provider. num_retries=0 disables LiteLLM's own retries.
+    return LiteLLMModel(
+        model_id=model_id, timeout=_REQUEST_TIMEOUT_S, num_retries=0, retry=False, **kwargs
+    )
 
 
-def _ollama_model(base_url: str, model_name: str) -> Model:
-    """Ollama exposes an OpenAI-compatible Chat Completions endpoint at /v1, so we reuse the
-    OpenAI provider with a dummy api_key (Ollama ignores it but Pydantic AI requires a string).
-    Gemma 4 has native tool calling + vision so it works as a real fallback, not just for text.
-    """
-    from pydantic_ai.models.openai import OpenAIChatModel
-    from pydantic_ai.providers.openai import OpenAIProvider
+class _FallbackModel(Model):
+    """Try each wrapped model in order; advance to the next on any generation error."""
 
-    provider = OpenAIProvider(api_key="ollama-local", base_url=base_url.rstrip("/"))
-    return OpenAIChatModel(model_name, provider=provider)
+    def __init__(self, models: list[Model]):
+        super().__init__()
+        if not models:
+            raise ValueError("_FallbackModel requires at least one model")
+        self._models = models
+        self.model_id = getattr(models[0], "model_id", "fallback")
+
+    def generate(self, messages, **kwargs) -> ChatMessage:  # type: ignore[override]
+        last_exc: Exception | None = None
+        for m in self._models:
+            try:
+                return m.generate(messages, **kwargs)
+            except Exception as exc:  # noqa: BLE001 — any provider failure → try the next
+                last_exc = exc
+                # Truncate: provider errors (esp. 429 quota JSON) are huge and spam logs.
+                summary = " ".join(str(exc).split())[:160]
+                logger.warning("model %s failed, falling back: %s", getattr(m, "model_id", m), summary)
+        assert last_exc is not None
+        raise last_exc
 
 
-def _build_default_model() -> Model:
-    """Free-tier LLM chain. Tries Gemini → Groq → OpenRouter → local Ollama in order.
-
-    Pydantic AI's `FallbackModel` retries the next model on rate-limit/503/timeout errors,
-    so when every cloud free tier is exhausted we fall through to whatever Ollama is serving
-    locally (Gemma 4 by default — native tool calling and vision). All four are genuinely free.
-
-    A provider is only included if its corresponding env var is set. Override each provider's
-    chain via `*_FALLBACK_MODELS` env vars (comma-separated).
-    """
+def _build_model_chain() -> list[Model]:
     settings = get_settings()
     models: list[Model] = []
 
     if settings.gemini_api_key:
-        models.extend(
-            _gemini_models(
-                settings.gemini_api_key,
-                settings.gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN),
-            )
-        )
-
+        chain = settings.gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN)
+        models += [_lite(f"gemini/{name}", api_key=settings.gemini_api_key) for name in chain]
     if settings.groq_api_key:
-        models.extend(
-            _groq_models(
-                settings.groq_api_key,
-                settings.groq_fallback_models or list(_DEFAULT_GROQ_CHAIN),
-            )
-        )
-
+        chain = settings.groq_fallback_models or list(_DEFAULT_GROQ_CHAIN)
+        models += [_lite(f"groq/{name}", api_key=settings.groq_api_key) for name in chain]
     if settings.openrouter_api_key:
-        models.extend(
-            _openrouter_models(
-                settings.openrouter_api_key,
-                settings.openrouter_fallback_models or list(_DEFAULT_OPENROUTER_CHAIN),
+        chain = settings.openrouter_fallback_models or list(_DEFAULT_OPENROUTER_CHAIN)
+        models += [
+            _lite(f"openrouter/{name}", api_key=settings.openrouter_api_key) for name in chain
+        ]
+    if settings.ollama_base_url:
+        models.append(
+            _lite(
+                f"ollama_chat/{settings.ollama_model}",
+                api_base=settings.ollama_base_url.rstrip("/"),
+                api_key="ollama-local",
             )
         )
+    return models
 
-    if settings.ollama_base_url:
-        models.append(_ollama_model(settings.ollama_base_url, settings.ollama_model))
 
+@lru_cache(maxsize=1)
+def get_default_model() -> Model:
+    """Resolve the configured model chain into a single (possibly fallback) Model.
+
+    Cached so we don't rebuild LiteLLM clients on every request. Tests monkeypatch this.
+    """
+    models = _build_model_chain()
     if not models:
-        return TestModel(
-            call_tools=[],
-            custom_output_text=(
-                "(Set GEMINI_API_KEY / GROQ_API_KEY / OPENROUTER_API_KEY / OLLAMA_BASE_URL to enable real responses.)"
-            ),
+        raise RuntimeError(
+            "No LLM provider configured. Set GEMINI_API_KEY / GROQ_API_KEY / "
+            "OPENROUTER_API_KEY / OLLAMA_BASE_URL."
         )
-
-    if len(models) == 1:
-        return models[0]
-
-    from pydantic_ai.models.fallback import FallbackModel
-
-    return FallbackModel(*models)
+    return models[0] if len(models) == 1 else _FallbackModel(models)
 
 
-agent: Agent[AgentDeps, str] = Agent(
-    _build_default_model(),
-    deps_type=AgentDeps,
-    output_type=str,
-    system_prompt=SYSTEM_PROMPT,
-    retries=3,
-)
+def get_title_model() -> Model:
+    """Model used for the cheap session-title call. Defaults to the shared chain (so it never
+    spends a user's personal quota on titles). Separate hook so tests can stub it independently."""
+    return get_default_model()
 
 
-# Tools live in `tools.py` and self-register on import.
-from . import tools  # noqa: E402,F401
+def _clean_title(raw: str) -> str:
+    """First line, strip surrounding quotes + trailing punctuation, cap length."""
+    line = (raw or "").strip().splitlines()[0].strip() if (raw or "").strip() else ""
+    line = line.strip("\"'“”").strip().rstrip(".!?,:;").strip()
+    return line[:60]
+
+
+def generate_session_title(first_user: str, first_assistant: str = "") -> str | None:
+    """One lightweight LLM call → a short, human-friendly chat title. Best-effort: returns None
+    on any failure (caller keeps the fallback truncation title)."""
+    from smolagents.models import ChatMessage, MessageRole
+
+    prompt = (
+        "Write a concise 3–6 word title (Title Case, no quotes, no ending punctuation) that "
+        "summarizes what this chat is about. Reply with ONLY the title.\n\n"
+        f"User: {first_user.strip()[:500]}\n"
+    )
+    if first_assistant:
+        prompt += f"Assistant: {first_assistant.strip()[:500]}\n"
+    try:
+        resp = get_title_model().generate([ChatMessage(role=MessageRole.USER, content=prompt)])
+    except Exception:  # noqa: BLE001 — titling is best-effort, never fail the turn
+        logger.warning("session title generation failed", exc_info=True)
+        return None
+    title = _clean_title(resp.content or "")
+    return title or None
+
+
+def _model_for_user(user_gemini_key: str | None) -> Model:
+    """When the user supplied their own Gemini key, try THEIR Gemini models first (their quota),
+    then fall through to the shared free-tier chain. Otherwise use the shared chain as-is."""
+    if not user_gemini_key:
+        return get_default_model()
+    chain = get_settings().gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN)
+    user_models: list[Model] = [
+        _lite(f"gemini/{name}", api_key=user_gemini_key) for name in chain
+    ]
+    try:
+        shared = get_default_model()
+    except RuntimeError:
+        shared = None
+    if shared is not None:
+        # `shared` may itself be a _FallbackModel; nesting is fine since generate() just delegates.
+        return _FallbackModel([*user_models, shared])
+    return _FallbackModel(user_models) if len(user_models) > 1 else user_models[0]
+
+
+def build_agent(
+    session: Session,
+    user: User,
+    *,
+    model: Model | None = None,
+    user_gemini_key: str | None = None,
+) -> ToolCallingAgent:
+    """Construct a per-request chat agent whose tools close over this session + user.
+
+    If `model` is given it's used verbatim (tests inject a scripted model). Otherwise, when the
+    user supplied their own Gemini key it's preferred; else the shared provider chain is used.
+    """
+    # Imported here (not at module top) to avoid a circular import: tools.py imports nothing
+    # from this module's request path, but keeping the import local mirrors the old layout.
+    from .tools import build_request_tools
+
+    tools = [*build_request_tools(session, user), WebSearchTool()]
+    return ToolCallingAgent(
+        tools=tools,
+        model=model or _model_for_user(user_gemini_key),
+        instructions=SYSTEM_PROMPT,
+        max_steps=8,
+        verbosity_level=LogLevel.ERROR,
+    )
