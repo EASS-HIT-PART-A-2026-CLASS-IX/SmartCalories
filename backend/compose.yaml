@@ -1,9 +1,27 @@
-# Single dev-friendly stack — `docker compose --profile local-redis up --build`
-#   api    builds the backend image (deps), then runs uvicorn --reload over bind-mounted source
+# Single self-contained dev stack — `docker compose up --build`
+#   db     local Postgres (NOT Neon) — the compose stack owns its own database
+#   api    builds the backend image (deps), runs uvicorn --reload over bind-mounted source
 #   web    Vite dev server (HMR) on http://localhost:5173; reads frontend/.env live
-#   redis  backs the rate-limit middleware only; spun up only with the `local-redis` profile
-# There is no separate nginx/prod compose path — develop and demo from this one file.
+#   redis  backs the rate-limit middleware only
+# Everything runs locally — no external Neon/Redis Cloud needed. (Prod deploy uses render.yaml,
+# where DATABASE_URL/REDIS_URL point at managed services instead.)
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: smartcalories
+      POSTGRES_PASSWORD: smartcalories
+      POSTGRES_DB: smartcalories
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartcalories -d smartcalories"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
+    volumes:
+      - sc_pgdata:/var/lib/postgresql/data
+
   api:
     build:
       context: ..
@@ -19,12 +37,15 @@ services:
       ]
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-dev}
-      DATABASE_URL: ${DATABASE_URL}
-      # Default points at the in-compose redis service; override in .env with a managed Redis
-      # (e.g. Redis Cloud `rediss://default:<pwd>@<host>:6379`).
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      # The compose stack owns its DB + Redis — point at the local containers, NOT the .env
+      # values (those are for non-Docker / prod runs). Override here only if you really mean to.
+      DATABASE_URL: postgresql+psycopg://smartcalories:smartcalories@db:5432/smartcalories
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-secret-change-me}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
+      # LLM providers (all optional, read from backend/.env). Claude is tried first when set.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -38,9 +59,10 @@ services:
       # Lets the api container reach a Mac/Linux host's Ollama at host.docker.internal:11434.
       - "host.docker.internal:host-gateway"
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
-        required: false
     volumes:
       - ./calorie_tracker:/app/calorie_tracker
       - ./alembic.ini:/app/alembic.ini
@@ -57,11 +79,8 @@ services:
       timeout: 3s
       retries: 5
 
-  # Local Redis is only spun up when COMPOSE_PROFILES contains `local-redis`. In non-dev
-  # environments leave that var unset and point REDIS_URL at a managed instance instead.
   redis:
     image: redis:7-alpine
-    profiles: ["local-redis"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -92,4 +111,5 @@ services:
         condition: service_healthy
 
 volumes:
+  sc_pgdata:
   sc_web_node_modules:
