@@ -7,7 +7,8 @@
     "searchChats": "Search chats",
     "loadMore": "Load more",
     "darkMode": "Dark mode",
-    "apiKey": "API key"
+    "apiKey": "API key",
+    "apiKeyGuestHint": "Sign in to set your own API keys"
   },
   "actions": {
     "newChat": "New chat",

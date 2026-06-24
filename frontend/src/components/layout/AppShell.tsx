@@ -270,7 +270,21 @@ export function AppShell() {
       <div className={cn('flex flex-col gap-2 p-3 text-xs', collapsed && 'items-center')}>
         {!collapsed && (
           <>
-            {!isAnonymous && (
+            {/* Guests + the demo account (both isAnonymous) can't store keys — show the entry
+                disabled with a hover tooltip explaining they need to sign in. */}
+            {isAnonymous ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-disabled
+                title={t('nav.apiKeyGuestHint')}
+                onClick={(e) => e.preventDefault()}
+                className="cursor-not-allowed justify-start text-muted-foreground/50 hover:bg-transparent hover:text-muted-foreground/50"
+              >
+                <KeyRound className="me-2 h-3.5 w-3.5" />
+                {t('nav.apiKey')}
+              </Button>
+            ) : (
               <Button
                 variant="ghost"
                 size="sm"

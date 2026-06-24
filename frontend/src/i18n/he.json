@@ -7,7 +7,8 @@
     "searchChats": "חיפוש שיחות",
     "loadMore": "טען עוד",
     "darkMode": "מצב כהה",
-    "apiKey": "מפתח API"
+    "apiKey": "מפתח API",
+    "apiKeyGuestHint": "התחבר כדי להגדיר מפתחות API משלך"
   },
   "actions": {
     "newChat": "צ׳אט חדש",
