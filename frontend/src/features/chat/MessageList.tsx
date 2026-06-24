@@ -69,6 +69,7 @@ export function MessageList({ messages, draft, pendingUserText, pendingImagePrev
             role={m.role === 'assistant' ? 'assistant' : 'user'}
             text={m.content}
             imagePath={m.image_path}
+            model={m.model}
           />
         ))}
         {showPendingUser && (

@@ -138,6 +138,9 @@ class ChatMessage(SQLModel, table=True):
     content: str = ""
     tool_calls: list[dict[str, Any]] | None = Field(default=None, sa_column=Column(JSON))
     image_path: str | None = None
+    # LLM model id that produced this message (assistant only), e.g. "gemini/gemini-2.0-flash"
+    # or "anthropic/claude-3-5-haiku-latest". Null for user messages and older rows.
+    model: str | None = Field(default=None, max_length=80)
     created_at: datetime = Field(default_factory=_now)
 
 

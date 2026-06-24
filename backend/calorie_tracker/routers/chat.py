@@ -10,7 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from ..ai.agent import build_agent, generate_session_title
+from ..ai.agent import build_agent, generate_session_title, used_model_id
 from ..auth import decode_token
 from ..deps import CurrentUser, SessionDep, get_current_user
 from ..models import ChatMessage, ChatSession, User, UserLLMKey
@@ -165,6 +165,7 @@ class MessageRead(BaseModel):
     role: str
     content: str
     image_path: str | None = None
+    model: str | None = None
     created_at: datetime
 
 
@@ -289,6 +290,7 @@ def list_messages(session_id: int, user: CurrentUser, session: SessionDep) -> li
             role=r.role,
             content=r.content,
             image_path=r.image_path,
+            model=r.model,
             created_at=r.created_at,
         )
         for r in rows
@@ -342,7 +344,9 @@ async def _run_agent_turn(
     )
     text = _clean_agent_text(raw)
 
-    assistant_msg = ChatMessage(session_id=s.id, role="assistant", content=text)
+    assistant_msg = ChatMessage(
+        session_id=s.id, role="assistant", content=text, model=used_model_id(agent.model)
+    )
     session.add(assistant_msg)
     session.commit()
     session.refresh(assistant_msg)
@@ -355,6 +359,7 @@ def _assistant_read(msg: ChatMessage) -> MessageRead:
         role="assistant",
         content=msg.content,
         image_path=None,
+        model=msg.model,
         created_at=msg.created_at,
     )
 
@@ -585,7 +590,9 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
         return
 
     text = _clean_agent_text(final_text)
-    assistant_msg = ChatMessage(session_id=s.id, role="assistant", content=text)
+    assistant_msg = ChatMessage(
+        session_id=s.id, role="assistant", content=text, model=used_model_id(agent.model)
+    )
     session.add(assistant_msg)
     session.commit()
     session.refresh(assistant_msg)
@@ -599,6 +606,7 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
                 "role": "assistant",
                 "content": assistant_msg.content,
                 "image_path": None,
+                "model": assistant_msg.model,
                 "created_at": assistant_msg.created_at.isoformat(),
             },
         },

@@ -30,6 +30,8 @@ export interface Message {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   image_path: string | null;
+  /** LLM model that produced an assistant message, e.g. "gemini/gemini-2.0-flash". */
+  model?: string | null;
   created_at: string;
 }
 

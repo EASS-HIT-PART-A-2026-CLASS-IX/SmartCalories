@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 
 # litellm model-id prefixes per provider. Defaults mirror the previous pydantic-ai chains.
 # Anthropic (Claude) is paid — no free tier — but when ANTHROPIC_API_KEY is set it's tried first.
-# `-latest` aliases avoid hard-coding dated ids; override via ANTHROPIC_FALLBACK_MODELS.
+# Current model ids (cheap → capable). Override via ANTHROPIC_FALLBACK_MODELS if your account
+# exposes different ids. (The older claude-3-5-*-latest aliases now 404 for new accounts.)
 _DEFAULT_ANTHROPIC_CHAIN = (
-    "claude-3-5-haiku-latest",
-    "claude-3-5-sonnet-latest",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
 )
 _DEFAULT_GEMINI_CHAIN = (
     "gemini-2.0-flash",
@@ -74,12 +75,16 @@ class _FallbackModel(Model):
             raise ValueError("_FallbackModel requires at least one model")
         self._models = models
         self.model_id = getattr(models[0], "model_id", "fallback")
+        # The model id that produced the most recent successful generation (for attribution).
+        self.last_used_model_id: str | None = None
 
     def generate(self, messages, **kwargs) -> ChatMessage:  # type: ignore[override]
         last_exc: Exception | None = None
         for m in self._models:
             try:
-                return m.generate(messages, **kwargs)
+                result = m.generate(messages, **kwargs)
+                self.last_used_model_id = getattr(m, "model_id", None)
+                return result
             except Exception as exc:  # noqa: BLE001 — any provider failure → try the next
                 last_exc = exc
                 # Truncate: provider errors (esp. 429 quota JSON) are huge and spam logs.
@@ -87,6 +92,15 @@ class _FallbackModel(Model):
                 logger.warning("model %s failed, falling back: %s", getattr(m, "model_id", m), summary)
         assert last_exc is not None
         raise last_exc
+
+
+def used_model_id(model) -> str | None:
+    """The model id that produced the most recent response, for per-message attribution.
+
+    For a `_FallbackModel` this is the provider that actually answered (set on each successful
+    generate); for a single model it's its fixed `model_id`.
+    """
+    return getattr(model, "last_used_model_id", None) or getattr(model, "model_id", None)
 
 
 def _build_model_chain() -> list[Model]:

@@ -37,7 +37,16 @@ export interface BubbleProps {
   text: string;
   imagePath?: string | null;
   imagePreviewUrl?: string | null;
+  model?: string | null;
   draft?: DraftMessage | null;
+}
+
+/** "anthropic/claude-3-5-haiku-latest" → "claude-3-5-haiku-latest"; "gemini/gemini-2.0-flash" →
+ *  "gemini-2.0-flash". Drops the LiteLLM provider prefix for a compact attribution label. */
+function prettyModel(model?: string | null): string | null {
+  if (!model) return null;
+  const slash = model.indexOf('/');
+  return slash === -1 ? model : model.slice(slash + 1);
 }
 
 function buildImageUrl(
@@ -56,7 +65,7 @@ function buildImageUrl(
   return url.toString();
 }
 
-export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl }: BubbleProps) {
+export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl, model }: BubbleProps) {
   const isUser = role === 'user';
   const isPending = draft && draft.phase !== 'done' && draft.phase !== 'error';
   // Show the "Thinking…" spinner while the agent turn is in flight and no text has arrived yet.
@@ -125,7 +134,19 @@ export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl }:
             </div>
           )}
         </div>
-        {!isUser && !isPending && text && <CopyAction text={text} />}
+        {!isUser && !isPending && text && (
+          <div className="flex items-center gap-1">
+            <CopyAction text={text} />
+            {prettyModel(model) && (
+              <span
+                className="text-[10px] leading-none text-muted-foreground/70"
+                title={model ?? undefined}
+              >
+                {prettyModel(model)}
+              </span>
+            )}
+          </div>
+        )}
         {draft?.phase === 'error' && (
           <div className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
             <span>⚠</span> {draft.error ?? 'Stream failed. Please try again.'}
