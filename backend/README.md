@@ -20,7 +20,7 @@ Seed demo data via the dev endpoint (no standalone seed script):
 
 ## Compose
 ```bash
-docker compose --profile local-redis up --build           # api :9000 + web :5173 + redis
+docker compose up --build           # db (Postgres) + api :9000 + web :5173 + redis (all local)
 ```
 
 ## AI Assistance

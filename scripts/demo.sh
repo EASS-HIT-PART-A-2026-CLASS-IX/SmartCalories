@@ -152,7 +152,7 @@ if echo "$HEADERS" | grep -qi 'x-ratelimit'; then
   ok "X-RateLimit-* headers present (Redis-backed token bucket)."
 else
   warn "No X-RateLimit-* headers — the limiter falls open when Redis is unreachable."
-  warn "Run the full stack ('cd backend && docker compose --profile local-redis up') to see them."
+  warn "Run the full stack ('cd backend && docker compose up') to see them (Redis runs there)."
 fi
 
 # --- 7. the AI agent (optional live turn) ---------------------------------------------------
@@ -176,8 +176,8 @@ ${BOLD}Next steps:${RESET}
   • Frontend (Chat + Diary, en/he RTL):
         cd frontend && npm install && npm run dev      # http://localhost:5173
     then click "Continue as guest" and type:  /log oatmeal 300
-  • Full stack (api + redis + web) in one shot:
-        cd backend && docker compose --profile local-redis up --build
+  • Full stack (db + api + redis + web, all local) in one shot:
+        cd backend && docker compose up --build
   • Tests:  cd backend && uv run pytest        (38 tests)
 EOF
 ok "Demo complete."

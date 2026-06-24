@@ -31,12 +31,12 @@ It auto-starts the backend on `:9000` against a throwaway SQLite DB in `ENVIRONM
 headers). Set `GEMINI_API_KEY` (or `GROQ_API_KEY`/`OPENROUTER_API_KEY`) first to also see a live
 AI chat turn; without one the chat step is skipped with a clear note.
 
-**Full stack via Docker (api + redis + web):**
+**Full stack via Docker (db + api + redis + web — fully local, no Neon/Redis Cloud needed):**
 ```bash
 cd backend
-cp .env.example .env             # set DATABASE_URL (Neon) or leave SQLite; AI keys optional
-docker compose --profile local-redis up --build -d
-docker compose ps                # api · redis · web
+cp .env.example .env             # AI keys optional; the DB + Redis run as local containers
+docker compose up --build -d
+docker compose ps                # db · api · redis · web
 # open http://localhost:5173 → "Continue as guest" → type:  /log oatmeal 300
 ```
 
@@ -51,7 +51,7 @@ cd frontend && npm install && npm run dev      # http://localhost:5173
 ## Architecture (what actually runs)
 
 ```
-React (Vite dev server)  ──HTTP + WebSocket──►  FastAPI  ──►  Postgres (Neon) / SQLite
+React (Vite dev server)  ──HTTP + WebSocket──►  FastAPI  ──►  Postgres (compose-local / Neon in prod) / SQLite
   Firebase JS SDK                            │  ├─ Firebase Admin (verify ID token)
   TanStack Query                             │  ├─ smolagents ToolCallingAgent (LiteLLM)
   en + he (RTL)                              │  └─ rate-limit middleware ──► Redis
@@ -65,10 +65,10 @@ Redis is used **only** by the rate-limit middleware. There is no background work
 |---|---|---|
 | **3+ cooperating services** | `backend/compose.yaml`: `api` (FastAPI :9000), `web` (React via Vite dev server :5173), `redis` (rate limiting). The three required cooperating services are **api + persistence (Neon/SQLite) + web**; the **LLM agent** (smolagents, embedded in api) is the 4th. | ✅ |
 | **Persistence + migrations + seed (no `.db` artifacts)** | Neon Postgres in prod (`DATABASE_URL`), SQLite for dev/tests. Alembic in `backend/calorie_tracker/migrations/`. Seeding via `POST /auth/demo` (rich 30-day demo) and `POST /auth/playground` (per-user starter), both idempotent, in `services/demo_seed.py`. `.gitignore` excludes `*.db`, `data/`, `uploads/*`, `.env`. | ✅ |
-| **4th microservice: LLM tool** | `calorie_tracker/ai/agent.py` — smolagents `ToolCallingAgent` driven through LiteLLM with a `_FallbackModel` chain (**Gemini → Groq → OpenRouter → Ollama**) so a rate-limited/free provider falls through to the next. **13 diary/nutrition tools** in `ai/tools.py` (log/list/update/delete food, macros-today, remaining-budget, streak, add-water, get/set goals, TDEE, analyze-image, search-nutrition) + smolagents `WebSearchTool`. | ✅ |
+| **4th microservice: LLM tool** | `calorie_tracker/ai/agent.py` — smolagents `ToolCallingAgent` driven through LiteLLM with a `_FallbackModel` chain (**Claude → Gemini → Groq → OpenRouter → Ollama**, each included only if its key is set; Anthropic/Claude is paid and tried first when configured) so a rate-limited/free provider falls through to the next. **13 diary/nutrition tools** in `ai/tools.py` (log/list/update/delete food, macros-today, remaining-budget, streak, add-water, get/set goals, TDEE, analyze-image, search-nutrition) + smolagents `WebSearchTool`. | ✅ |
 | **Async refresh + Redis idempotency + `pytest.mark.anyio` test** | Intentionally **removed** during cleanup — it was product-unused scaffolding and its Redis use conflicted with the "Redis = rate limiting only" decision. | ❌ removed (see Known gaps) |
 | **Hashed credentials + JWT-protected routes + role checks** | **Firebase Auth** hashes passwords with Google's scrypt on Google's servers; ID tokens are RS256 JWTs verified by `firebase_admin.auth.verify_id_token` in `auth.py`. Every router except `/health` depends on `get_current_user`. Authorization gate enforced today: `require_not_anonymous` (guests get **403** on `/me/llm-key`). `require_role("admin")` factory exists in `deps.py` for admin-only routes. `tests/test_auth.py` + `tests/test_account.py`: **401** on missing/expired token, **403** for guests on a gated route, and per-user data isolation. | ⚠️ role gate is anon-vs-user, not admin (see Known gaps) |
-| **Compose + Redis** | `backend/compose.yaml` (api · redis · web) — a single dev-mode stack; `backend/Dockerfile` builds the api image. `web` runs the Vite dev server (no nginx/prod compose path). Redis runs under the `local-redis` profile (non-dev points `REDIS_URL` at a managed instance). No background worker (removed). | ✅ / ⚠️ no worker |
+| **Compose + Redis** | `backend/compose.yaml` (db · api · redis · web) — a single self-contained dev stack: local **Postgres** container, `backend/Dockerfile`-built api, Vite dev `web`, and Redis (always on; no profile). `docker compose up` needs no external services. No background worker (removed). | ✅ / ⚠️ no worker |
 | **Rate limit + `X-RateLimit-*` headers** | `calorie_tracker/rate_limit.py` Starlette middleware. Per-minute Redis counter; emits `X-RateLimit-Limit/Remaining/Reset` and `429` + `Retry-After`. **Falls open (no headers) when Redis is unreachable** — so headers appear in the compose stack, not in a bare `uvicorn` run. | ✅ |
 | **Enhancement (rubric: "thoughtful")** | The **conversational AI agent that edits your diary by tool-calling** + **image → nutrition** photo scan. Chat (`/chat/ws` WebSocket, plus REST `/chat/messages`) lets a user say "log two eggs and toast" or `/budget`, and the agent calls the diary tools to actually mutate state and answer. `POST /photo/scan` runs a Gemini-vision structured-output agent (`ai/vision.py`, pydantic-ai) to turn a meal photo into a `FoodEntry`. Security-minded twist: users can **bring their own Gemini key**, stored Fernet-encrypted at rest (`services/secrets.py`, `/me/llm-key`). | ✅ |
 | **Automated tests covering the enhancement** | `cd backend && uv run pytest` → **38 tests**: `test_chat_agent` (14, agent tools via a stubbed model), `test_photo` (3, vision stubbed), `test_account` (5, BYO-key + 403 gate), `test_auth` (9), `test_diary_insights` (7). The chat/vision tests never call a real provider (see Lessons). | ✅ |

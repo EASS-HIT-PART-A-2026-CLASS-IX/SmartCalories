@@ -66,7 +66,7 @@ npm run dev        # http://localhost:5173 — click "Continue as guest", then t
 ## Full stack with Docker
 ```bash
 cd backend
-docker compose --profile local-redis up --build      # api :9000 · web :5173 · redis
+docker compose up --build      # db (Postgres) · api :9000 · web :5173 · redis — all local
 ```
 See **[`docs/runbooks/compose.md`](docs/runbooks/compose.md)** for verification commands.
 
