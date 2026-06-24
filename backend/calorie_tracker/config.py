@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     app_name: str = "SmartCalories"
     environment: str = Field(default="dev", description="dev | test | prod")
 
+    secret_key: str | None = Field(
+        default=None,
+        description="App secret used to derive the Fernet key that encrypts user-supplied API "
+        "keys at rest. MUST be set in prod; dev falls back to an insecure constant.",
+    )
+
     database_url: str = Field(
         default="sqlite:///./data/dev.db",
         description="Postgres URL for Neon in prod, sqlite for local dev fallback.",

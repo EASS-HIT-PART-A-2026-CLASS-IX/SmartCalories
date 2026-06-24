@@ -9,6 +9,7 @@ from .config import get_settings
 from .db import init_db
 from .rate_limit import RateLimitMiddleware
 from .routers import (
+    account,
     auth_demo,
     chat,
     diary,
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RateLimitMiddleware, per_minute=settings.rate_limit_per_min)
     app.include_router(health.router)
     app.include_router(users.router)
+    app.include_router(account.router)
     app.include_router(diary.router)
     app.include_router(insights.router)
     app.include_router(logs.router)

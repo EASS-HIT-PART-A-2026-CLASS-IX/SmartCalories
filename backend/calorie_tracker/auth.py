@@ -41,19 +41,15 @@ def _init_firebase() -> None:
     _initialized = True
 
 
-def verify_firebase_token(
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-) -> dict[str, Any]:
-    """Decode the bearer Firebase ID token. Override this in tests via dependency_overrides.
+def decode_token(token: str) -> dict[str, Any]:
+    """Decode a raw Firebase ID token string into its claims. Used by both the HTTP header
+    dependency and the WebSocket handler (browsers can't set headers on a WS handshake, so the
+    WS path passes the token as a query param and calls this directly).
 
-    DEV ESCAPE HATCH: when ENVIRONMENT=dev (the default for local stacks) and the bearer is
-    the literal string ``demo-token``, return a fake decoded payload representing a demo user.
-    This makes the no-Firebase compose stack usable end-to-end for screenshots / smoke tests
-    without setting up Firebase. Production deployments should set ENVIRONMENT=prod.
+    DEV ESCAPE HATCH: when ENVIRONMENT=dev and the token is the literal ``demo-token``, return a
+    fake payload representing a demo user, so the no-Firebase compose stack works end-to-end.
     """
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
+    token = (token or "").strip()
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Empty bearer token")
 
@@ -73,3 +69,12 @@ def verify_firebase_token(
         return fb_auth.verify_id_token(token)
     except Exception as exc:  # noqa: BLE001 — Firebase raises a small zoo of exception types
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {exc}")
+
+
+def verify_firebase_token(
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> dict[str, Any]:
+    """Decode the bearer Firebase ID token from the Authorization header. Override in tests."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+    return decode_token(authorization.split(" ", 1)[1])
