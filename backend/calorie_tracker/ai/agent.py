@@ -36,12 +36,13 @@ _DEFAULT_ANTHROPIC_CHAIN = (
     "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
 )
+# Robust models only — the `*-flash-lite` variants were too "lazy" for tool-calling, so they're
+# dropped. 2.5-flash leads (fast + capable, the Haiku analog); 2.5-pro and 2.0-flash back it up.
+# Override with GEMINI_FALLBACK_MODELS if you want a different set/order.
 _DEFAULT_GEMINI_CHAIN = (
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
+    "gemini-2.0-flash",
 )
 _DEFAULT_GROQ_CHAIN = (
     "llama-3.3-70b-versatile",
