@@ -106,8 +106,21 @@ export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl }:
             <span className="text-sm italic text-muted-foreground">
               The agent finished without a response. Try rephrasing or sending again.
             </span>
+          ) : isUser ? (
+            // User text is what they typed — render verbatim (preserve line breaks) so prose's
+            // body color doesn't override the colored bubble's text-primary-foreground.
+            <div className="whitespace-pre-wrap break-words">{text}</div>
           ) : (
-            <div className="prose prose-base dark:prose-invert max-w-none">
+            // Assistant replies are markdown — render with GFM + Tailwind Typography. The
+            // `prose-*` overrides tighten chat spacing and inherit the bubble's foreground color.
+            <div
+              className={cn(
+                'prose prose-sm dark:prose-invert max-w-none break-words',
+                'prose-p:my-2 prose-headings:mt-3 prose-headings:mb-2 prose-pre:my-2',
+                'prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5',
+                'prose-pre:bg-muted prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none',
+              )}
+            >
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
             </div>
           )}
