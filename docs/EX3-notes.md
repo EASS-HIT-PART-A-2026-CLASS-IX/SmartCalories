@@ -55,7 +55,7 @@ React (Vite dev server)  ──HTTP + WebSocket──►  FastAPI  ──►  Po
   Firebase JS SDK                            │  ├─ Firebase Admin (verify ID token)
   TanStack Query                             │  ├─ smolagents ToolCallingAgent (LiteLLM)
   en + he (RTL)                              │  └─ rate-limit middleware ──► Redis
-External: Gemini / Groq / OpenRouter / Ollama (LLM, with fallback) · Firebase Auth
+External: Anthropic / Gemini / Groq / OpenRouter (LLM, with fallback) · Firebase Auth
 ```
 Redis backs the rate-limit middleware (always-on) and the **rollup cache** written by the async
 refresher (`scripts/refresh.py`). In the compose stack a dedicated **`refresher` worker** service
@@ -68,7 +68,7 @@ stays a one-shot process (idempotent, so looping is safe) and can also be driven
 |---|---|---|
 | **3+ cooperating services** | `backend/compose.yaml`: `api` (FastAPI :9000), `web` (React via Vite dev server :5173), `redis` (rate limiting). The three required cooperating services are **api + persistence (Neon/SQLite) + web**; the **LLM agent** (smolagents, embedded in api) is the 4th. | ✅ |
 | **Persistence + migrations + seed (no `.db` artifacts)** | Neon Postgres in prod (`DATABASE_URL`), SQLite for dev/tests. Alembic in `backend/calorie_tracker/migrations/`. Seeding via `POST /auth/demo` (rich 30-day demo) and `POST /auth/playground` (per-user starter), both idempotent, in `services/demo_seed.py`. `.gitignore` excludes `*.db`, `data/`, `uploads/*`, `.env`. | ✅ |
-| **4th microservice: LLM tool** | `calorie_tracker/ai/agent.py` — smolagents `ToolCallingAgent` driven through LiteLLM with a `_FallbackModel` chain (**Claude → Gemini → Groq → OpenRouter → Ollama**, each included only if its key is set; Anthropic/Claude is paid and tried first when configured) so a rate-limited/free provider falls through to the next. **12 diary/nutrition tools** in `ai/tools.py` (log/list/update/delete food, macros-today, remaining-budget, streak, add-water, get/set goals, TDEE, search-nutrition) + smolagents `WebSearchTool`. | ✅ |
+| **4th microservice: LLM tool** | `calorie_tracker/ai/agent.py` — smolagents `ToolCallingAgent` driven through LiteLLM with a `_FallbackModel` chain (**Claude → Gemini → Groq → OpenRouter**, each included only if its key is set; Anthropic/Claude is paid and tried first when configured) so a rate-limited/free provider falls through to the next. **12 diary/nutrition tools** in `ai/tools.py` (log/list/update/delete food, macros-today, remaining-budget, streak, add-water, get/set goals, TDEE, search-nutrition) + smolagents `WebSearchTool`. | ✅ |
 | **Async refresh + Redis idempotency + `pytest.mark.anyio` test** | `calorie_tracker/scripts/refresh.py` — an async daily-rollup refresher with **bounded concurrency** (`asyncio.Semaphore`), **retries** (exponential backoff), and **Redis-backed idempotency** (each cached key paired with a sha256 digest; an unchanged rerun writes nothing). Run via `uv run python -m calorie_tracker.scripts.refresh`. Covered by `tests/test_refresh.py` (3 `pytest.mark.anyio` tests: write-then-idempotent, retry-on-transient-failure, bounded concurrency across users). Redis trace excerpt below. | ✅ |
 | **Hashed credentials + JWT-protected routes + role checks** | **Firebase Auth** hashes passwords with Google's scrypt on Google's servers; ID tokens are RS256 JWTs verified by `firebase_admin.auth.verify_id_token` in `auth.py`. Every router except `/health` depends on `get_current_user`. Authorization gate enforced today: `require_not_anonymous` (guests get **403** on `/me/llm-key`). `require_role("admin")` factory exists in `deps.py` for admin-only routes. `tests/test_auth.py` + `tests/test_account.py`: **401** on missing/expired token, **403** for guests on a gated route, and per-user data isolation. | ⚠️ role gate is anon-vs-user, not admin (see Known gaps) |
 | **Compose + Redis** | `backend/compose.yaml` (db · api · redis · web · refresher) — a single self-contained dev stack: local **Postgres** container, `backend/Dockerfile`-built api, Vite dev `web`, Redis (always on; no profile), and a **`refresher` worker** that loops `scripts/refresh.py` on a timer. `docker compose up` needs no external services. | ✅ |
@@ -107,7 +107,7 @@ $ redis-cli --raw get rollup:demo-uid:summary
 - `POST /auth/demo`, `POST /auth/playground` (dev/seed helpers)
 
 ## Beyond-rubric extras
-- **Multi-provider LLM resilience** — automatic fallback across Gemini, Groq, OpenRouter, and a local Ollama backstop, so the free tier degrades gracefully instead of erroring.
+- **Multi-provider LLM resilience** — automatic fallback across Anthropic, Gemini, Groq, and OpenRouter, so a rate-limited provider degrades gracefully instead of erroring.
 - **Bring-your-own API keys** — signed-in users store personal keys for any of the four chat providers (Anthropic, Gemini, Groq, OpenRouter), encrypted at rest with Fernet (AES-128-CBC + HMAC); the agent uses them first in fallback order, and only a masked last-4 hint is ever read back. The Settings modal explains the fallback strategy and recommends adding keys in that order.
 - **Bilingual UI** — English + Hebrew with full RTL.
 - **ChatGPT-style streaming** — the chat WebSocket emits typed events (`session`/`tool`/`message`/`title`/`done`/`error`); the client renders a thinking pill, animated tool-call chips, paced token output, and a Stop button.
@@ -132,7 +132,7 @@ Built with assistance from Claude Code. Notable points and verifications:
 - All changes are in the commit history; nothing was auto-merged.
 
 ## Lessons learned
-- **Free-tier LLMs need fallback.** A single provider rate-limits constantly, so the agent chains Gemini → Groq → OpenRouter → Ollama and advances on any error.
+- **Free-tier LLMs need fallback.** A single provider rate-limits constantly, so the agent chains Anthropic → Gemini → Groq → OpenRouter and advances on any error.
 - **smolagents agents are sync generators.** Streaming over WebSocket runs `agent.run(task, stream=True)` in a thread and forwards tool events through an asyncio queue, keeping all DB-session access on one thread.
 - **Tests must not hit a real model.** Chat tests stub the model so the suite is deterministic and burns no quota (see `.claude/lessons/`).
 - **Keep the dependency surface honest.** Periodic cleanup removed an unused worker, cache, refresh script, and ~8 orphaned deps (pandas, reportlab, fastmcp, logfire, …) left over from descoped features.

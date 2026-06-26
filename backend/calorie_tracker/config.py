@@ -81,19 +81,6 @@ class Settings(BaseSettings):
         description="Comma-separated OpenRouter model names. Defaults to a couple of `:free` Llama/Gemma builds.",
     )
 
-    # Local Ollama — an open-source LLM backstop (also the default when no cloud key is set; see
-    # the compose `local-llm` profile). Set OLLAMA_BASE_URL to http://ollama:11434 (compose) or
-    # http://localhost:11434 (bare host) — no /v1; ollama_chat uses Ollama's native /api/chat —
-    # and `ollama pull <model>`. Default model is
-    # llama3.2:1b — small + tool-capable, which the agent needs (Gemma's tool-calling on Ollama is
-    # unreliable). Tried FIRST when actually reachable (local-first); cloud keys are the fallback,
-    # and it's omitted entirely when not running.
-    ollama_base_url: str | None = None
-    ollama_model: str = Field(
-        default="llama3.2:1b",
-        description="Ollama tag for the local fallback model. Must support tool calling; defaults to llama3.2:1b.",
-    )
-
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     uploads_dir: str = "uploads"
