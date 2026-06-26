@@ -61,8 +61,10 @@ class UserGoals(SQLModel, table=True):
 
 
 class UserLLMKey(SQLModel, table=True):
-    """User-supplied LLM provider API keys (Anthropic and/or Gemini), encrypted at rest.
+    """User-supplied LLM provider API keys, encrypted at rest.
 
+    One row per user holds an optional key for each supported provider (Anthropic, Gemini, Groq,
+    OpenRouter) — the same providers the chat agent falls back through, in that order.
     `*_key_enc` holds a Fernet token (see services/secrets.py), never the raw key.
     `*_key_last4` is stored separately so the UI can show a masked hint without decrypting.
     """
@@ -70,10 +72,14 @@ class UserLLMKey(SQLModel, table=True):
     __tablename__ = "user_llm_key"
 
     user_uid: str = Field(foreign_key="user.uid", primary_key=True, max_length=128)
-    gemini_key_enc: str | None = Field(default=None, max_length=512)
-    gemini_key_last4: str | None = Field(default=None, max_length=8)
     anthropic_key_enc: str | None = Field(default=None, max_length=512)
     anthropic_key_last4: str | None = Field(default=None, max_length=8)
+    gemini_key_enc: str | None = Field(default=None, max_length=512)
+    gemini_key_last4: str | None = Field(default=None, max_length=8)
+    groq_key_enc: str | None = Field(default=None, max_length=512)
+    groq_key_last4: str | None = Field(default=None, max_length=8)
+    openrouter_key_enc: str | None = Field(default=None, max_length=512)
+    openrouter_key_last4: str | None = Field(default=None, max_length=8)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

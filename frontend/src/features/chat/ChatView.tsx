@@ -7,7 +7,6 @@ import { Dumbbell, Sparkles } from 'lucide-react';
 
 import {
   listMessages,
-  uploadPhoto,
   type Conversation,
   type Message,
 } from '@/lib/api/chat';
@@ -42,12 +41,8 @@ export function ChatView() {
   const selectedId = params.sessionId ? Number(params.sessionId) : null;
 
   const [pendingUserText, setPendingUserText] = useState<string | null>(null);
-  const [pendingImagePath, setPendingImagePath] = useState<string | null>(null);
-  const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<string | null>(null);
   const { draft, send, seedThinking, stop, clearDraft } = useStreamingChat();
-  // pendingImagePath is read indirectly via the optimistic cache write below.
-  void pendingImagePath;
 
   // Surface streamed errors as toasts so the user sees model failures (rate limit, 503, etc).
   const lastErrorRef = useRef<string>('');
@@ -110,37 +105,9 @@ export function ChatView() {
       selectedId !== null && selectedId > 0 && authReady && !!uid && pendingUserText === null,
   });
 
-  const handleSend = async (text: string, file?: File | null) => {
-    let imagePath: string | null = null;
-    let composedText = text;
-    let previewUrl: string | null = null;
-
-    if (file) {
-      previewUrl = URL.createObjectURL(file);
-      // Show the user's message + a "Thinking…" bubble BEFORE the slow /photo/scan request
-      // returns, so the user gets immediate feedback.
-      if (!composedText.trim()) {
-        composedText = 'What is in this photo? Estimate the nutrition and log it if helpful.';
-      }
-      setPendingUserText(composedText);
-      setPendingImagePreviewUrl(previewUrl);
-      const finishAnalysis = seedThinking();
-      try {
-        const photo = await uploadPhoto(file, { commit: false });
-        imagePath = photo.image_path;
-        finishAnalysis();
-      } catch (err) {
-        URL.revokeObjectURL(previewUrl);
-        finishAnalysis();
-        toast.error('Photo analysis failed: ' + formatError(err));
-        setPendingUserText(null);
-        setPendingImagePreviewUrl(null);
-        clearDraft();
-        return;
-      }
-    }
-
-    if (!composedText.trim() && !imagePath) return;
+  const handleSend = async (text: string) => {
+    const composedText = text;
+    if (!composedText.trim()) return;
 
     // A brand-new chat has no session yet. The single send call below creates the real session
     // server-side; we DON'T navigate to a placeholder URL. Instead we render the chat in place
@@ -154,26 +121,16 @@ export function ChatView() {
     // Immediate feedback: show the user's bubble + a "Thinking…" agent bubble right away,
     // in this same component instance.
     setPendingUserText(composedText);
-    setPendingImagePath(imagePath);
-    if (previewUrl) setPendingImagePreviewUrl(previewUrl);
     seedThinking();
 
     await send({
       sessionId: originSessionId,
       content: composedText,
-      imagePath,
       onSettled: (result) => {
-        const releasePreview = () => {
-          if (previewUrl) setTimeout(() => URL.revokeObjectURL(previewUrl), 1000);
-        };
-
         if (result.phase === 'idle') {
           // User hit Stop — cancel cleanly: drop the pending message + thinking bubble entirely,
           // reverting to the prior state (cached messages for an existing chat, hero for a new one).
           setPendingUserText(null);
-          setPendingImagePath(null);
-          releasePreview();
-          setPendingImagePreviewUrl(null);
           clearDraft();
           return;
         }
@@ -181,9 +138,6 @@ export function ChatView() {
         if (result.phase === 'error' || !result.session || !result.assistantMessage) {
           // Keep pendingUserText + the error draft so the user still sees their message and the
           // inline error and can retry. We never navigated away, so there's nothing to roll back.
-          setPendingImagePath(null);
-          releasePreview();
-          setPendingImagePreviewUrl(null);
           return;
         }
 
@@ -201,7 +155,6 @@ export function ChatView() {
                   id: -Date.now(),
                   role: 'user' as const,
                   content: composedText,
-                  image_path: imagePath,
                   created_at: new Date().toISOString(),
                 },
               ];
@@ -228,9 +181,6 @@ export function ChatView() {
         if (selectedId !== realId) navigate(`/c/${realId}`, { replace: isNewChat });
 
         setPendingUserText(null);
-        setPendingImagePath(null);
-        releasePreview();
-        setPendingImagePreviewUrl(null);
         clearDraft();
       },
     });
@@ -270,7 +220,6 @@ export function ChatView() {
               messages={(messages.data ?? []) as Message[]}
               draft={draft}
               pendingUserText={pendingUserText}
-              pendingImagePreviewUrl={pendingImagePreviewUrl}
             />
             <Composer
               disabled={false}
@@ -321,7 +270,7 @@ export function ChatView() {
                     {displayName ? `Hi, ${displayName.split(' ')[0]}` : t('app.name')}
                   </h1>
                   <p className="max-w-md text-base text-muted-foreground">
-                    Ask the agent to log a meal, plan your week, or analyse a photo. Tap a
+                    Ask the agent to log a meal, plan your week, or check your macros. Tap a
                     suggestion below or just type freely.
                   </p>
                 </div>

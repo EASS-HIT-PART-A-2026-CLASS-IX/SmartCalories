@@ -1,8 +1,8 @@
 # SmartCalories
 
-AI-powered calorie tracking & dieting agent. You chat with an assistant that logs your meals,
-analyzes meal photos into nutrition, and answers questions about your macros — backed by a
-FastAPI service, a SQL persistence layer, Redis (rate limiting), and a React frontend.
+AI-powered calorie tracking & dieting agent. You chat with an assistant that logs your meals
+and answers questions about your macros — backed by a FastAPI service, a SQL persistence layer,
+Redis (rate limiting), and a React frontend.
 
 EASS Semester B 2026 — EX3 final project. Grader notes: **[`docs/EX3-notes.md`](docs/EX3-notes.md)**.
 
@@ -54,7 +54,7 @@ curl -s -X POST http://127.0.0.1:9000/diary \
   -d '{"name":"Oatmeal","calories":300,"meal":"breakfast"}' | python3 -m json.tool
 ```
 Key route groups: `/users/me`, `/me/llm-key`, `/diary`, `/insights`, `/logs`, `/chat`
-(REST + `WS /chat/ws`), `/photo/scan`. Full list in `docs/EX3-notes.md` or `/docs`.
+(REST + `WS /chat/ws`). Full list in `docs/EX3-notes.md` or `/docs`.
 
 ## Run the frontend
 ```bash
@@ -66,14 +66,26 @@ npm run dev        # http://localhost:5173 — click "Continue as guest", then t
 ## Full stack with Docker
 ```bash
 cd backend
-docker compose up --build      # db (Postgres) · api :9000 · web :5173 · redis — all local
+docker compose up --build      # db (Postgres) · api :9000 · web :5173 · redis · refresher — all local
 ```
 See **[`docs/runbooks/compose.md`](docs/runbooks/compose.md)** for verification commands.
 
 ## Tests
 ```bash
-cd backend && uv run pytest          # 38 tests; chat/vision tests use a stub model (no quota used)
+cd backend && uv run pytest          # 37 tests; chat tests use a stub model (no quota used)
 ```
+CI runs the same suite on every push/PR (`.github/workflows/ci.yml`).
+
+## Async rollup refresher
+An async job recomputes each user's daily macro rollups + streak and caches them in Redis
+(bounded concurrency, retries, idempotent writes). In the compose stack the `refresher` worker
+loops it on a timer (`REFRESH_INTERVAL_SECONDS`, default hourly); you can also run it by hand or
+on a cron/launchd timer:
+```bash
+cd backend && uv run python -m calorie_tracker.scripts.refresh
+```
+Details + a Redis trace are in [`docs/EX3-notes.md`](docs/EX3-notes.md); compose usage in
+[`docs/runbooks/compose.md`](docs/runbooks/compose.md).
 
 ## AI Assistance
 This project was built with Claude Code (Anthropic). Planning was done in plan mode

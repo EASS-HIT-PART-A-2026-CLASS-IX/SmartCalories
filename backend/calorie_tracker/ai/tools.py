@@ -6,7 +6,6 @@ sequentially within a single `agent.run`, so no cross-tool DB lock is needed.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -400,26 +399,6 @@ class ComputeTdeeTool(_RequestTool):
         }
 
 
-class AnalyzeImageTool(_RequestTool):
-    name = "analyze_image_tool"
-    description = (
-        "Analyze a meal photo the user attached (given its image_path) and return parsed "
-        "nutrition (name, calories, macros, confidence). Call this when the user sends a photo."
-    )
-    inputs = {
-        "image_path": {"type": "string", "description": "Server path of the uploaded image."},
-    }
-    output_type = "object"
-
-    def forward(self, image_path: str) -> dict:
-        from . import vision
-
-        # vision.analyze_image is async; the agent runs in a worker thread with no event loop,
-        # so a fresh asyncio.run is safe here.
-        extraction = asyncio.run(vision.analyze_image(image_path))
-        return extraction.model_dump()
-
-
 class SearchNutritionTool(_RequestTool):
     name = "search_nutrition"
     description = (
@@ -521,7 +500,6 @@ def build_request_tools(session: Session, user: User) -> list[Tool]:
         GetUserGoalsTool,
         SetGoalTool,
         ComputeTdeeTool,
-        AnalyzeImageTool,
         SearchNutritionTool,
     )
     return [cls(session, user) for cls in classes]

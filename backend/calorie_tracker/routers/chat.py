@@ -10,7 +10,12 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from ..ai.agent import build_agent, generate_session_title, used_model_id
+from ..ai.agent import (
+    USER_KEY_PROVIDERS,
+    build_agent,
+    generate_session_title,
+    used_model_id,
+)
 from ..auth import decode_token
 from ..deps import CurrentUser, SessionDep, get_current_user
 from ..models import ChatMessage, ChatSession, User, UserLLMKey
@@ -19,16 +24,19 @@ from ..services.secrets import decrypt_secret
 logger = logging.getLogger(__name__)
 
 
-def _user_llm_keys(session: Session, user: User) -> tuple[str | None, str | None]:
-    """The signed-in user's own (anthropic_key, gemini_key), decrypted. Guests never have keys."""
+def _user_llm_keys(session: Session, user: User) -> dict[str, str | None]:
+    """The signed-in user's own provider keys, decrypted, keyed by provider name. Guests never
+    have keys. Returns {} when nothing is stored."""
     if user.is_anonymous:
-        return None, None
+        return {}
     row = session.get(UserLLMKey, user.uid)
     if row is None:
-        return None, None
-    anthropic = decrypt_secret(row.anthropic_key_enc) if row.anthropic_key_enc else None
-    gemini = decrypt_secret(row.gemini_key_enc) if row.gemini_key_enc else None
-    return anthropic, gemini
+        return {}
+    keys: dict[str, str | None] = {}
+    for provider in USER_KEY_PROVIDERS:
+        enc = getattr(row, f"{provider}_key_enc")
+        keys[provider] = decrypt_secret(enc) if enc else None
+    return keys
 
 
 def _friendly_provider_error(exc: Exception, *, has_own_key: bool, is_anonymous: bool) -> str:
@@ -40,8 +48,8 @@ def _friendly_provider_error(exc: Exception, *, has_own_key: bool, is_anonymous:
         if has_own_key:
             return " Your personal key is also at its limit — please wait a moment and retry."
         if is_anonymous:
-            return " Sign in and add your own API key (Gemini or Claude, in Settings) to skip the shared limits."
-        return " Tip: add your own API key (Gemini or Claude) in Settings to skip the shared limits."
+            return " Sign in and add your own API key (Claude, Gemini, Groq, or OpenRouter, in Settings) to skip the shared limits."
+        return " Tip: add your own API key (Claude, Gemini, Groq, or OpenRouter) in Settings to skip the shared limits."
 
     is_auth = any(
         k in text
@@ -111,13 +119,11 @@ async def _run_agent_or_raise(
 _HISTORY_TURNS = 12
 
 
-def _build_task(session: Session, session_id: int, content: str, image_path: str | None) -> str:
+def _build_task(session: Session, session_id: int, content: str) -> str:
     """Compose the smolagents task: a short prior-turn transcript + the current user message.
 
     smolagents agents are rebuilt per-request (their tools close over this request's session),
     so memory isn't carried across calls — we inline recent history into the task instead.
-    Image bytes are never replayed; if the current message has a photo we point the agent at
-    `analyze_image_tool` with the path.
     """
     rows = session.exec(
         select(ChatMessage)
@@ -136,11 +142,6 @@ def _build_task(session: Session, session_id: int, content: str, image_path: str
         )
         parts.append("Conversation so far:\n" + transcript)
     parts.append(f"User: {content}")
-    if image_path:
-        parts.append(
-            f"[The user attached a photo at image_path='{image_path}'. Call analyze_image_tool "
-            "with this exact path to analyze it before answering.]"
-        )
     return "\n\n".join(parts)
 
 
@@ -159,14 +160,12 @@ class SessionRead(BaseModel):
 
 class MessagePayload(BaseModel):
     content: str
-    image_path: str | None = None
 
 
 class MessageRead(BaseModel):
     id: int
     role: str
     content: str
-    image_path: str | None = None
     model: str | None = None
     created_at: datetime
 
@@ -291,7 +290,6 @@ def list_messages(session_id: int, user: CurrentUser, session: SessionDep) -> li
             id=r.id,
             role=r.role,
             content=r.content,
-            image_path=r.image_path,
             model=r.model,
             created_at=r.created_at,
         )
@@ -323,30 +321,25 @@ def _clean_agent_text(text: str) -> str:
 async def _run_agent_turn(
     s: ChatSession,
     content: str,
-    image_path: str | None,
     user: User,
     session: Session,
 ) -> ChatMessage:
     """Persist the user message, run the agent over the session history, and persist + return
     the assistant reply. Shared by the path-based and the unified send endpoints."""
-    user_msg = ChatMessage(
-        session_id=s.id, role="user", content=content, image_path=image_path
-    )
+    user_msg = ChatMessage(session_id=s.id, role="user", content=content)
     session.add(user_msg)
     session.commit()
     session.refresh(user_msg)
     _maybe_retitle(s, content, session)
 
-    task = _build_task(session, s.id, content, image_path)
-    user_anthropic, user_gemini = _user_llm_keys(session, user)
-    agent = build_agent(
-        session, user, user_anthropic_key=user_anthropic, user_gemini_key=user_gemini
-    )
+    task = _build_task(session, s.id, content)
+    user_keys = _user_llm_keys(session, user)
+    agent = build_agent(session, user, user_keys=user_keys)
 
     raw = await _run_agent_or_raise(
         agent,
         task,
-        has_own_key=bool(user_anthropic or user_gemini),
+        has_own_key=any(user_keys.values()),
         is_anonymous=user.is_anonymous,
     )
     text = _clean_agent_text(raw)
@@ -365,7 +358,6 @@ def _assistant_read(msg: ChatMessage) -> MessageRead:
         id=msg.id,
         role="assistant",
         content=msg.content,
-        image_path=None,
         model=msg.model,
         created_at=msg.created_at,
     )
@@ -380,9 +372,7 @@ async def post_message(
 ) ->MessageRead:
     """Append a message to an existing session, run the agent, return the assistant reply."""
     s = _owned_session(session_id, user.uid, session)
-    assistant_msg = await _run_agent_turn(
-        s, payload.content, payload.image_path, user, session
-    )
+    assistant_msg = await _run_agent_turn(s, payload.content, user, session)
     return _assistant_read(assistant_msg)
 
 
@@ -391,7 +381,6 @@ class SendMessagePayload(BaseModel):
 
     session_id: int | None = None
     content: str
-    image_path: str | None = None
 
 
 class SendMessageResponse(BaseModel):
@@ -421,9 +410,7 @@ async def send_message(
         s = _owned_session(payload.session_id, user.uid, session)
         is_new = False
 
-    assistant_msg = await _run_agent_turn(
-        s, payload.content, payload.image_path, user, session
-    )
+    assistant_msg = await _run_agent_turn(s, payload.content, user, session)
     # Refine the title with a lightweight LLM call on the first turn (updates s.title in place).
     await _maybe_llm_title(session, s, payload.content, assistant_msg.content)
     return SendMessageResponse(
@@ -433,36 +420,6 @@ async def send_message(
         is_new_session=is_new,
         message=_assistant_read(assistant_msg),
     )
-
-
-class CommandPayload(BaseModel):
-    cmd: str
-    text: str = ""
-    session_id: int | None = None
-
-
-@router.post("/commands")
-async def dispatch_command(
-    payload: CommandPayload, user: CurrentUser, session: SessionDep
-) -> dict:
-    """Slash-command dispatcher. Wraps the input as `/<cmd> <text>` and runs the agent.
-
-    Frontend may also just send `/<cmd> <text>` as a regular message — this endpoint
-    exists so deterministic UIs (like a barcode scan that runs without LLM round-trips)
-    can short-circuit later. For now it always routes through the agent.
-    """
-    task = f"User: /{payload.cmd} {payload.text}".strip()
-    user_anthropic, user_gemini = _user_llm_keys(session, user)
-    agent = build_agent(
-        session, user, user_anthropic_key=user_anthropic, user_gemini_key=user_gemini
-    )
-    raw = await _run_agent_or_raise(
-        agent,
-        task,
-        has_own_key=bool(user_anthropic or user_gemini),
-        is_anonymous=user.is_anonymous,
-    )
-    return {"text": _clean_agent_text(raw), "cmd": payload.cmd}
 
 
 async def _safe_send(ws: WebSocket, data: dict) -> bool:
@@ -504,9 +461,8 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
         return
 
     content = (payload.get("content") or "").strip()
-    image_path = payload.get("image_path")
     session_id = payload.get("session_id")
-    if not content and not image_path:
+    if not content:
         await _safe_send(websocket, {"type": "error", "message": "Empty message."})
         await websocket.close()
         return
@@ -527,7 +483,7 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
         is_new = False
 
     # --- Persist the user message + auto-title ---
-    user_msg = ChatMessage(session_id=s.id, role="user", content=content, image_path=image_path)
+    user_msg = ChatMessage(session_id=s.id, role="user", content=content)
     session.add(user_msg)
     session.commit()
     session.refresh(user_msg)
@@ -545,11 +501,9 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
     )
 
     # --- Stream the agent run, forwarding tool events live ---
-    task = _build_task(session, s.id, content, image_path)
-    user_anthropic, user_gemini = _user_llm_keys(session, user)
-    agent = build_agent(
-        session, user, user_anthropic_key=user_anthropic, user_gemini_key=user_gemini
-    )
+    task = _build_task(session, s.id, content)
+    user_keys = _user_llm_keys(session, user)
+    agent = build_agent(session, user, user_keys=user_keys)
 
     from smolagents.memory import FinalAnswerStep  # local import keeps module load cheap
 
@@ -597,7 +551,7 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
                 "type": "error",
                 "message": _friendly_provider_error(
                     error_exc,
-                    has_own_key=bool(user_anthropic or user_gemini),
+                    has_own_key=any(user_keys.values()),
                     is_anonymous=user.is_anonymous,
                 ),
             },
@@ -621,7 +575,6 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
                 "id": assistant_msg.id,
                 "role": "assistant",
                 "content": assistant_msg.content,
-                "image_path": None,
                 "model": assistant_msg.model,
                 "created_at": assistant_msg.created_at.isoformat(),
             },

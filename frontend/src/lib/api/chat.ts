@@ -29,7 +29,6 @@ export interface Message {
   id: number;
   role: 'user' | 'assistant' | 'tool';
   content: string;
-  image_path: string | null;
   /** LLM model that produced an assistant message, e.g. "gemini/gemini-2.0-flash". */
   model?: string | null;
   created_at: string;
@@ -46,10 +45,6 @@ export interface SendMessageResult {
 
 export async function listConversations(): Promise<Conversation[]> {
   return api<Conversation[]>('/chat/sessions');
-}
-
-export async function createConversation(title = 'New chat'): Promise<Conversation> {
-  return api<Conversation>('/chat/sessions', { method: 'POST', json: { title } });
 }
 
 export async function listMessages(sessionId: number): Promise<Message[]> {
@@ -72,35 +67,11 @@ export async function deleteConversation(sessionId: number): Promise<void> {
  */
 export async function sendMessage(
   content: string,
-  opts: { sessionId?: number | null; imagePath?: string | null; signal?: AbortSignal } = {},
+  opts: { sessionId?: number | null; signal?: AbortSignal } = {},
 ): Promise<SendMessageResult> {
   return api<SendMessageResult>('/chat/messages', {
     method: 'POST',
-    json: { session_id: opts.sessionId ?? null, content, image_path: opts.imagePath ?? null },
+    json: { session_id: opts.sessionId ?? null, content },
     signal: opts.signal,
-  });
-}
-
-export async function uploadPhoto(file: File, opts: { commit?: boolean; meal?: string } = {}): Promise<{
-  image_path: string;
-  extraction: {
-    name: string;
-    calories: number;
-    protein_g: number;
-    carb_g: number;
-    fat_g: number;
-    confidence: number;
-    note?: string | null;
-  };
-  entry: { id: number; name: string; calories: number; meal: string } | null;
-}> {
-  const fd = new FormData();
-  fd.append('file', file);
-  const params = new URLSearchParams();
-  if (opts.commit) params.set('commit', 'true');
-  if (opts.meal) params.set('meal', opts.meal);
-  return api(`/photo/scan?${params.toString()}`, {
-    method: 'POST',
-    body: fd,
   });
 }

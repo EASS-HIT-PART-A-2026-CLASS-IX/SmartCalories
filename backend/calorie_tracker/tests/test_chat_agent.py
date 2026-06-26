@@ -140,14 +140,6 @@ def test_search_sessions_is_user_scoped(
     assert user2_client.get("/chat/sessions/search", params={"q": "pancakes"}).json() == []
 
 
-def test_command_dispatch_routes_through_agent(client: TestClient, monkeypatch) -> None:
-    _use_model(monkeypatch, _final("today: 0 kcal"))
-    r = client.post("/chat/commands", json={"cmd": "macros", "text": ""})
-    assert r.status_code == 200
-    assert r.json()["cmd"] == "macros"
-    assert "kcal" in r.json()["text"]
-
-
 def test_log_food_tool_creates_diary_entry(client: TestClient, monkeypatch) -> None:
     """Script the agent to call log_food, then finalize — exercises the real tool + DB write."""
     sid = client.post("/chat/sessions", json={"title": "Log via agent"}).json()["id"]

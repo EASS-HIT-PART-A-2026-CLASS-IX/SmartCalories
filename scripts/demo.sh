@@ -178,6 +178,6 @@ ${BOLD}Next steps:${RESET}
     then click "Continue as guest" and type:  /log oatmeal 300
   • Full stack (db + api + redis + web, all local) in one shot:
         cd backend && docker compose up --build
-  • Tests:  cd backend && uv run pytest        (38 tests)
+  • Tests:  cd backend && uv run pytest        (41 tests)
 EOF
 ok "Demo complete."

@@ -16,8 +16,6 @@ from .routers import (
     health,
     insights,
     logs,
-    photo,
-    uploads,
     users,
 )
 
@@ -46,9 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(insights.router)
     app.include_router(logs.router)
     app.include_router(chat.router)
-    app.include_router(photo.router)
     app.include_router(auth_demo.router)
-    app.include_router(uploads.router)
     return app
 
 

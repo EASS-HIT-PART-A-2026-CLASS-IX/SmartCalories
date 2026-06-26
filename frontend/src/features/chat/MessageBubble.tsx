@@ -5,8 +5,6 @@ import { Check, Copy, Dumbbell, Loader2 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { useAuthStore } from '@/stores/authStore';
-import { env } from '@/lib/env';
 import type { DraftMessage } from './useStreamingChat';
 
 /** Friendly present-tense labels for the live "Thinking" indicator, keyed by tool name. */
@@ -22,7 +20,6 @@ const TOOL_LABELS: Record<string, string> = {
   get_user_goals: 'Checking your goals',
   set_goal: 'Updating your goals',
   compute_tdee: 'Crunching your TDEE',
-  analyze_image_tool: 'Analyzing your photo',
   search_nutrition: 'Searching nutrition data',
   web_search: 'Searching the web',
 };
@@ -35,8 +32,6 @@ function toolLabel(name?: string): string {
 export interface BubbleProps {
   role: 'user' | 'assistant';
   text: string;
-  imagePath?: string | null;
-  imagePreviewUrl?: string | null;
   model?: string | null;
   draft?: DraftMessage | null;
 }
@@ -49,31 +44,11 @@ function prettyModel(model?: string | null): string | null {
   return slash === -1 ? model : model.slice(slash + 1);
 }
 
-function buildImageUrl(
-  imagePath: string | null | undefined,
-  uid: string | null,
-  token: string | null,
-): string | null {
-  if (!imagePath || !uid) return null;
-  const marker = `uploads/${uid}/`;
-  const idx = imagePath.indexOf(marker);
-  if (idx === -1) return null;
-  const tail = imagePath.slice(idx + marker.length);
-  const url = new URL(`${env.apiBase}/uploads/${uid}/${tail}`);
-  // <img> can't send Authorization headers — use the backend's `?token=` query fallback.
-  if (token) url.searchParams.set('token', token);
-  return url.toString();
-}
-
-export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl, model }: BubbleProps) {
+export function MessageBubble({ role, text, draft, model }: BubbleProps) {
   const isUser = role === 'user';
   const isPending = draft && draft.phase !== 'done' && draft.phase !== 'error';
   // Show the "Thinking…" spinner while the agent turn is in flight and no text has arrived yet.
   const showThinking = !!isPending && !text;
-  const uid = useAuthStore((s) => s.uid);
-  const idToken = useAuthStore((s) => s.idToken);
-
-  const imageUrl = imagePreviewUrl ?? buildImageUrl(imagePath, uid, idToken);
 
   // Empty assistant body once the turn is done is a model glitch (Gemini occasionally
   // ends a tool-using turn with no text). Surface a clear fallback instead of an empty bubble.
@@ -92,15 +67,6 @@ export function MessageBubble({ role, text, draft, imagePath, imagePreviewUrl, m
         </div>
       )}
       <div className={cn('max-w-[90ch] space-y-2', isUser && 'order-1')}>
-        {imageUrl && (
-          <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
-            <img
-              src={imageUrl}
-              alt="Uploaded"
-              className="max-h-72 max-w-[18rem] rounded-xl border object-cover shadow-sm"
-            />
-          </div>
-        )}
         <div
           className={cn(
             'rounded-2xl px-4 py-3 leading-relaxed shadow-sm',

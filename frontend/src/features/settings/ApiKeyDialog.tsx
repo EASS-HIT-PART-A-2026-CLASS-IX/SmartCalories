@@ -18,7 +18,10 @@ interface Props {
   onClose: () => void;
 }
 
+type ProviderField = 'anthropic' | 'gemini' | 'groq' | 'openrouter';
+
 interface ProviderInfo {
+  field: ProviderField;
   name: string;
   placeholder: string;
   consoleUrl: string;
@@ -26,21 +29,47 @@ interface ProviderInfo {
   note: string;
 }
 
-const ANTHROPIC: ProviderInfo = {
-  name: 'Anthropic (Claude)',
-  placeholder: 'sk-ant-…',
-  consoleUrl: 'https://console.anthropic.com/settings/keys',
-  consoleLabel: 'Open Anthropic Console',
-  note: 'Paid — no free tier, but highest quality. Tried first when set.',
-};
+// Order mirrors the backend fallback chain: Anthropic → Gemini → Groq → OpenRouter.
+const PROVIDERS: ProviderInfo[] = [
+  {
+    field: 'anthropic',
+    name: 'Anthropic (Claude)',
+    placeholder: 'sk-ant-…',
+    consoleUrl: 'https://console.anthropic.com/settings/keys',
+    consoleLabel: 'Open Anthropic Console',
+    note: 'Paid — no free tier, but highest quality. Tried first when set.',
+  },
+  {
+    field: 'gemini',
+    name: 'Google Gemini',
+    placeholder: 'AIza…',
+    consoleUrl: 'https://aistudio.google.com/apikey',
+    consoleLabel: 'Open Google AI Studio',
+    note: 'Generous free tier.',
+  },
+  {
+    field: 'groq',
+    name: 'Groq',
+    placeholder: 'gsk_…',
+    consoleUrl: 'https://console.groq.com/keys',
+    consoleLabel: 'Open Groq Console',
+    note: 'Free, very fast (Llama 3.3 70B + Gemma 2).',
+  },
+  {
+    field: 'openrouter',
+    name: 'OpenRouter',
+    placeholder: 'sk-or-…',
+    consoleUrl: 'https://openrouter.ai/keys',
+    consoleLabel: 'Open OpenRouter',
+    note: 'Free `:free` Llama/Gemma builds with strict daily caps.',
+  },
+];
 
-const GEMINI: ProviderInfo = {
-  name: 'Google Gemini',
-  placeholder: 'AIza…',
-  consoleUrl: 'https://aistudio.google.com/apikey',
-  consoleLabel: 'Open Google AI Studio',
-  note: 'Has a free tier. Also powers meal-photo analysis.',
-};
+const hasKeyFor = (s: LlmKeyStatus | undefined, field: ProviderField): boolean =>
+  !!s?.[`has_${field}` as keyof LlmKeyStatus];
+
+const last4For = (s: LlmKeyStatus | undefined, field: ProviderField): string | null =>
+  (s?.[`${field}_last4` as keyof LlmKeyStatus] as string | null) ?? null;
 
 export function ApiKeyDialog({ open, onClose }: Props) {
   const queryClient = useQueryClient();
@@ -95,34 +124,61 @@ export function ApiKeyDialog({ open, onClose }: Props) {
         </div>
 
         <div className="space-y-5 overflow-y-auto px-5 py-5">
-          <p className="text-sm text-muted-foreground">
-            The app shares a free quota across everyone, so it can hit rate limits. Add your own
-            key for <strong>Anthropic (Claude)</strong> and/or <strong>Gemini</strong> and your
-            chats use it first — Claude before Gemini before the shared models. Keys are stored{' '}
-            <strong>encrypted</strong> and only ever used for your messages.
-          </p>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              The app shares a free quota across everyone, so it can hit rate limits. Add your own
+              key for any of the providers below and your chats use <strong>your</strong> keys
+              first. Keys are stored <strong>encrypted</strong> and only ever used for your
+              messages.
+            </p>
+            <div className="rounded-lg border bg-background/40 p-3">
+              <p className="mb-1.5 font-medium text-foreground">How fallback works</p>
+              <p className="mb-2">
+                The agent tries providers in order and moves to the next one whenever a model is
+                rate-limited or errors — so a single busy provider never blocks your chat:
+              </p>
+              <ol className="list-inside list-decimal space-y-0.5">
+                <li>
+                  <strong>Anthropic (Claude)</strong> — highest quality
+                </li>
+                <li>
+                  <strong>Gemini</strong>
+                </li>
+                <li>
+                  <strong>Groq</strong>
+                </li>
+                <li>
+                  <strong>OpenRouter</strong>
+                </li>
+                <li>the app's shared free pool (last resort)</li>
+              </ol>
+              <p className="mt-2">
+                Your own keys are always tried before the shared pool, in this same order. We
+                recommend adding keys <strong>in this fallback order</strong> — start with the ones
+                you have, and add more for extra resilience.
+              </p>
+            </div>
+          </div>
 
           {status.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Checking…
             </div>
           ) : (
-            <>
+            PROVIDERS.map((info) => (
               <ProviderKeySection
-                info={ANTHROPIC}
-                hasKey={!!s?.has_anthropic}
-                last4={s?.anthropic_last4 ?? null}
-                onSave={(k) => mutate.mutateAsync({ anthropic_api_key: k })}
-                onClear={() => mutate.mutateAsync({ anthropic_api_key: '' })}
+                key={info.field}
+                info={info}
+                hasKey={hasKeyFor(s, info.field)}
+                last4={last4For(s, info.field)}
+                onSave={(k) =>
+                  mutate.mutateAsync({ [`${info.field}_api_key`]: k } as LlmKeyUpdate)
+                }
+                onClear={() =>
+                  mutate.mutateAsync({ [`${info.field}_api_key`]: '' } as LlmKeyUpdate)
+                }
               />
-              <ProviderKeySection
-                info={GEMINI}
-                hasKey={!!s?.has_gemini}
-                last4={s?.gemini_last4 ?? null}
-                onSave={(k) => mutate.mutateAsync({ gemini_api_key: k })}
-                onClear={() => mutate.mutateAsync({ gemini_api_key: '' })}
-              />
-            </>
+            ))
           )}
         </div>
       </div>

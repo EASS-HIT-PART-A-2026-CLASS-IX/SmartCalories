@@ -42,15 +42,7 @@ export interface UserGoals {
   sex: string | null;
 }
 
-export interface UserPreferences {
-  theme: string;
-  language: string;
-  units: string;
-  notifications: Record<string, unknown>;
-}
-
 export const diaryApi = {
-  today: () => api<DiaryEntry[]>('/diary/today'),
   range: (from: string, to: string) =>
     api<DiaryEntry[]>('/diary', { query: { from, to } }),
   create: (body: { name: string; calories: number; meal: string }) =>
@@ -60,18 +52,10 @@ export const diaryApi = {
 
 export const insightsApi = {
   today: () => api<MacrosSnapshot>('/insights/macros/today'),
-  range: (days = 7) => api<MacrosSnapshot[]>('/insights/macros/range', { query: { days } }),
-  streak: () => api<{ days: number }>('/insights/streak'),
 };
 
 export const usersApi = {
   goals: () => api<UserGoals>('/users/me/goals'),
-  putGoals: (body: Partial<UserGoals>) => api<UserGoals>('/users/me/goals', { method: 'PUT', json: body }),
-  prefs: () => api<UserPreferences>('/users/me/preferences'),
-  putPrefs: (body: Partial<UserPreferences>) =>
-    api<UserPreferences>('/users/me/preferences', { method: 'PUT', json: body }),
-  patchProfile: (body: { display_name?: string; locale?: string; timezone?: string }) =>
-    api(`/users/me`, { method: 'PATCH', json: body }),
 };
 
 export const logsApi = {

@@ -13,7 +13,7 @@ cp .env.example .env                                       # set DATABASE_URL et
 # Postgres path: apply migrations. (SQLite quick-run: tables auto-create on startup.)
 uv run alembic upgrade head
 ENVIRONMENT=dev uv run uvicorn calorie_tracker.main:app --port 9000 --reload   # http://127.0.0.1:9000
-uv run pytest                                              # 38 tests
+uv run pytest                                              # 37 tests
 ```
 Seed demo data via the dev endpoint (no standalone seed script):
 `curl -s -X POST http://127.0.0.1:9000/auth/demo`

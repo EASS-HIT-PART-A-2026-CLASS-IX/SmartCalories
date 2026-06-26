@@ -5,12 +5,10 @@ code-executing `CodeAgent`, since our tools mutate the user's diary). Tools are 
 per-request so each one closes over the request's DB session + user (see `tools.py`).
 
 Models are driven through LiteLLM. To keep the free-tier resilience the project relied on,
-`_FallbackModel` wraps the Gemini → Groq → OpenRouter → Ollama chain and advances to the next
-provider on any error (rate-limit / 503 / timeout).
-
-Note: the photo-analysis agent in `vision.py` is a separate pydantic-ai structured-output
-agent and is intentionally NOT migrated — the chat agent reaches it via `analyze_image_tool`.
+`_FallbackModel` wraps the Anthropic → Gemini → Groq → OpenRouter → Ollama chain and advances to
+the next provider on any error (rate-limit / 503 / timeout).
 """
+
 from __future__ import annotations
 
 import logging
@@ -63,7 +61,11 @@ def _lite(model_id: str, **kwargs) -> "LiteLLMModel":
     #   compound across the whole chain into a long hang. Instead a 429 raises immediately and
     #   _FallbackModel advances to the next provider. num_retries=0 disables LiteLLM's own retries.
     return LiteLLMModel(
-        model_id=model_id, timeout=_REQUEST_TIMEOUT_S, num_retries=0, retry=False, **kwargs
+        model_id=model_id,
+        timeout=_REQUEST_TIMEOUT_S,
+        num_retries=0,
+        retry=False,
+        **kwargs,
     )
 
 
@@ -86,11 +88,17 @@ class _FallbackModel(Model):
                 result = m.generate(messages, **kwargs)
                 self.last_used_model_id = getattr(m, "model_id", None)
                 return result
-            except Exception as exc:  # noqa: BLE001 — any provider failure → try the next
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 — any provider failure → try the next
                 last_exc = exc
                 # Truncate: provider errors (esp. 429 quota JSON) are huge and spam logs.
                 summary = " ".join(str(exc).split())[:160]
-                logger.warning("model %s failed, falling back: %s", getattr(m, "model_id", m), summary)
+                logger.warning(
+                    "model %s failed, falling back: %s",
+                    getattr(m, "model_id", m),
+                    summary,
+                )
         assert last_exc is not None
         raise last_exc
 
@@ -101,30 +109,41 @@ def used_model_id(model) -> str | None:
     For a `_FallbackModel` this is the provider that actually answered (set on each successful
     generate); for a single model it's its fixed `model_id`.
     """
-    return getattr(model, "last_used_model_id", None) or getattr(model, "model_id", None)
+    return getattr(model, "last_used_model_id", None) or getattr(
+        model, "model_id", None
+    )
+
+
+# The api-key providers the chat agent (and users' own keys) fall through, in priority order.
+# Ollama is intentionally NOT here — it's a keyless local base-URL backstop, not a BYO-key option.
+USER_KEY_PROVIDERS: tuple[str, ...] = ("anthropic", "gemini", "groq", "openrouter")
+
+_DEFAULT_CHAINS: dict[str, tuple[str, ...]] = {
+    "anthropic": _DEFAULT_ANTHROPIC_CHAIN,
+    "gemini": _DEFAULT_GEMINI_CHAIN,
+    "groq": _DEFAULT_GROQ_CHAIN,
+    "openrouter": _DEFAULT_OPENROUTER_CHAIN,
+}
+
+
+def _provider_models(provider: str, api_key: str) -> list[Model]:
+    """LiteLLM models for one api-key provider, in its fallback order, using `api_key`."""
+    settings = get_settings()
+    override = getattr(settings, f"{provider}_fallback_models", None)
+    chain = override or list(_DEFAULT_CHAINS[provider])
+    return [_lite(f"{provider}/{name}", api_key=api_key) for name in chain]
 
 
 def _build_model_chain() -> list[Model]:
+    """The shared (server-configured) provider chain, in fallback order, ending with Ollama."""
     settings = get_settings()
     models: list[Model] = []
 
     # Claude first when configured (paid; preferred quality), then the free-tier providers.
-    if settings.anthropic_api_key:
-        chain = settings.anthropic_fallback_models or list(_DEFAULT_ANTHROPIC_CHAIN)
-        models += [
-            _lite(f"anthropic/{name}", api_key=settings.anthropic_api_key) for name in chain
-        ]
-    if settings.gemini_api_key:
-        chain = settings.gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN)
-        models += [_lite(f"gemini/{name}", api_key=settings.gemini_api_key) for name in chain]
-    if settings.groq_api_key:
-        chain = settings.groq_fallback_models or list(_DEFAULT_GROQ_CHAIN)
-        models += [_lite(f"groq/{name}", api_key=settings.groq_api_key) for name in chain]
-    if settings.openrouter_api_key:
-        chain = settings.openrouter_fallback_models or list(_DEFAULT_OPENROUTER_CHAIN)
-        models += [
-            _lite(f"openrouter/{name}", api_key=settings.openrouter_api_key) for name in chain
-        ]
+    for provider in USER_KEY_PROVIDERS:
+        key = getattr(settings, f"{provider}_api_key", None)
+        if key:
+            models += _provider_models(provider, key)
     if settings.ollama_base_url:
         models.append(
             _lite(
@@ -153,7 +172,8 @@ def get_default_model() -> Model:
 
 def get_title_model() -> Model:
     """Model used for the cheap session-title call. Defaults to the shared chain (so it never
-    spends a user's personal quota on titles). Separate hook so tests can stub it independently."""
+    spends a user's personal quota on titles). Separate hook so tests can stub it independently.
+    """
     return get_default_model()
 
 
@@ -177,7 +197,9 @@ def generate_session_title(first_user: str, first_assistant: str = "") -> str | 
     if first_assistant:
         prompt += f"Assistant: {first_assistant.strip()[:500]}\n"
     try:
-        resp = get_title_model().generate([ChatMessage(role=MessageRole.USER, content=prompt)])
+        resp = get_title_model().generate(
+            [ChatMessage(role=MessageRole.USER, content=prompt)]
+        )
     except Exception:  # noqa: BLE001 — titling is best-effort, never fail the turn
         logger.warning("session title generation failed", exc_info=True)
         return None
@@ -185,17 +207,17 @@ def generate_session_title(first_user: str, first_assistant: str = "") -> str | 
     return title or None
 
 
-def _model_for_user(user_anthropic_key: str | None, user_gemini_key: str | None) -> Model:
-    """Prefer the user's OWN keys (their quota) — Anthropic first, then Gemini — before falling
-    through to the shared free-tier chain. With no personal keys, use the shared chain as-is."""
-    settings = get_settings()
+def _model_for_user(user_keys: dict[str, str | None] | None) -> Model:
+    """Prefer the user's OWN keys (their quota), in the standard fallback order (Anthropic →
+    Gemini → Groq → OpenRouter), before falling through to the shared chain. With no personal
+    keys, use the shared chain as-is.
+    """
+    user_keys = user_keys or {}
     user_models: list[Model] = []
-    if user_anthropic_key:
-        chain = settings.anthropic_fallback_models or list(_DEFAULT_ANTHROPIC_CHAIN)
-        user_models += [_lite(f"anthropic/{name}", api_key=user_anthropic_key) for name in chain]
-    if user_gemini_key:
-        chain = settings.gemini_fallback_models or list(_DEFAULT_GEMINI_CHAIN)
-        user_models += [_lite(f"gemini/{name}", api_key=user_gemini_key) for name in chain]
+    for provider in USER_KEY_PROVIDERS:
+        key = user_keys.get(provider)
+        if key:
+            user_models += _provider_models(provider, key)
 
     if not user_models:
         return get_default_model()
@@ -214,13 +236,13 @@ def build_agent(
     user: User,
     *,
     model: Model | None = None,
-    user_anthropic_key: str | None = None,
-    user_gemini_key: str | None = None,
+    user_keys: dict[str, str | None] | None = None,
 ) -> ToolCallingAgent:
     """Construct a per-request chat agent whose tools close over this session + user.
 
-    If `model` is given it's used verbatim (tests inject a scripted model). Otherwise, when the
-    user supplied their own Gemini key it's preferred; else the shared provider chain is used.
+    If `model` is given it's used verbatim (tests inject a scripted model). Otherwise the user's
+    own provider keys (`user_keys`, keyed by provider name) are preferred in fallback order, then
+    the shared provider chain.
     """
     # Imported here (not at module top) to avoid a circular import: tools.py imports nothing
     # from this module's request path, but keeping the import local mirrors the old layout.
@@ -229,7 +251,7 @@ def build_agent(
     tools = [*build_request_tools(session, user), WebSearchTool()]
     return ToolCallingAgent(
         tools=tools,
-        model=model or _model_for_user(user_anthropic_key, user_gemini_key),
+        model=model or _model_for_user(user_keys),
         instructions=SYSTEM_PROMPT,
         max_steps=8,
         verbosity_level=LogLevel.ERROR,

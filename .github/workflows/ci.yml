@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-tests:
+    name: backend · pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run tests
+        # Tests use an in-memory SQLite DB + stubbed LLM/vision models, so no DATABASE_URL,
+        # Redis, Firebase, or AI provider keys are needed in CI.
+        run: uv run pytest
+
+  # Contract/fuzz testing with Schemathesis is run manually (see docs/runbooks/compose.md):
+  # every route except /health requires a Firebase token, so a useful run needs the dev stack
+  # plus `-H 'Authorization: Bearer demo-token'`. Kept out of required CI to stay deterministic.
+  #
+  #   uvx schemathesis run http://localhost:9000/openapi.json \
+  #     -H 'Authorization: Bearer demo-token' --checks all

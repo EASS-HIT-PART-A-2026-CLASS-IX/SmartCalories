@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image as ImageIcon, Send, Square, X } from 'lucide-react';
+import { Send, Square } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
-// Photo upload is disabled for now — flip to re-enable the attach button + file handling.
-const IMAGE_UPLOAD_ENABLED = false;
-
 interface Props {
   disabled?: boolean;
   isStreaming?: boolean;
-  onSend: (text: string, file?: File | null) => void;
+  onSend: (text: string) => void;
   onStop?: () => void;
   prefill?: string | null;
   onPrefillConsumed?: () => void;
@@ -20,9 +17,7 @@ interface Props {
 export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPrefillConsumed }: Props) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
-  const [file, setFile] = useState<File | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (prefill !== undefined && prefill !== null) {
@@ -41,10 +36,9 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
   const submit = () => {
     // Don't allow a second send (via Enter) while one is already in flight.
     if (isStreaming) return;
-    if (!text.trim() && !file) return;
-    onSend(text.trim(), file);
+    if (!text.trim()) return;
+    onSend(text.trim());
     setText('');
-    setFile(null);
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -57,22 +51,6 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
   return (
     <div className="border-t bg-background p-3">
       <div className="relative mx-auto flex max-w-4xl flex-col gap-2 rounded-2xl border-2 border-foreground/25 bg-card p-2 shadow-sm">
-        {IMAGE_UPLOAD_ENABLED && file && (
-          <div className="flex items-center gap-2 px-2 pt-1">
-            <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-xs">
-              <ImageIcon className="h-3 w-3 text-muted-foreground" />
-              <span className="max-w-[200px] truncate">{file.name}</span>
-              <button
-                type="button"
-                onClick={() => setFile(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          </div>
-        )}
-
         <Textarea
           ref={textareaRef}
           value={text}
@@ -84,38 +62,14 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
           className="min-h-[44px] resize-none border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
         />
 
-        <div className="flex items-center justify-between gap-2 px-1 pb-1">
-          <div className="flex items-center gap-1">
-            {IMAGE_UPLOAD_ENABLED && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={disabled}
-                  title="Upload meal photo"
-                >
-                  <ImageIcon className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-          </div>
-
+        <div className="flex items-center justify-end gap-2 px-1 pb-1">
           {isStreaming ? (
             <Button type="button" variant="outline" onClick={onStop}>
               <Square className="me-1 h-3 w-3" />
               {t('actions.stop')}
             </Button>
           ) : (
-            <Button type="button" disabled={disabled || (!text.trim() && !file)} onClick={submit}>
+            <Button type="button" disabled={disabled || !text.trim()} onClick={submit}>
               <Send className="me-1 h-3 w-3" />
               {t('actions.send')}
             </Button>

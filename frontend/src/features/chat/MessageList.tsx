@@ -9,7 +9,6 @@ interface Props {
   messages: Message[];
   draft: DraftMessage | null;
   pendingUserText?: string | null;
-  pendingImagePreviewUrl?: string | null;
 }
 
 /** Pulsing placeholder bubbles. Shown when a session is selected but its messages are still
@@ -37,7 +36,7 @@ export function MessageListSkeleton() {
   );
 }
 
-export function MessageList({ messages, draft, pendingUserText, pendingImagePreviewUrl }: Props) {
+export function MessageList({ messages, draft, pendingUserText }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,17 +67,10 @@ export function MessageList({ messages, draft, pendingUserText, pendingImagePrev
             key={m.id}
             role={m.role === 'assistant' ? 'assistant' : 'user'}
             text={m.content}
-            imagePath={m.image_path}
             model={m.model}
           />
         ))}
-        {showPendingUser && (
-          <MessageBubble
-            role="user"
-            text={pendingUserText!}
-            imagePreviewUrl={pendingImagePreviewUrl ?? undefined}
-          />
-        )}
+        {showPendingUser && <MessageBubble role="user" text={pendingUserText!} />}
         {draft &&
           (draft.text || draft.phase === 'thinking' || draft.phase === 'error') && (
             <MessageBubble role="assistant" text={draft.text} draft={draft} />

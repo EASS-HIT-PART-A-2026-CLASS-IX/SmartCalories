@@ -33,7 +33,6 @@ interface SendOptions {
   /** Existing session id, or null to let the backend create one in the same request. */
   sessionId: number | null;
   content: string;
-  imagePath?: string | null;
   onSettled?: (result: SendResult) => void;
 }
 
@@ -59,7 +58,7 @@ export function useStreamingChat() {
   );
 
   const send = useCallback(
-    async ({ sessionId, content, imagePath, onSettled }: SendOptions) => {
+    async ({ sessionId, content, onSettled }: SendOptions) => {
       manualStopRef.current = false;
       updateDraft((prev) => (prev ? { ...prev, phase: 'thinking' } : thinkingDraft()));
 
@@ -92,7 +91,6 @@ export function useStreamingChat() {
                 JSON.stringify({
                   session_id: sessionId,
                   content,
-                  image_path: imagePath ?? null,
                 }),
               );
 
@@ -176,7 +174,7 @@ export function useStreamingChat() {
     [updateDraft],
   );
 
-  /** Pre-show the "Thinking…" bubble before the send call (e.g. during a slow photo upload). */
+  /** Pre-show the "Thinking…" bubble before the send call, for immediate feedback. */
   const seedThinking = useCallback((): (() => void) => {
     updateDraft((prev) => prev ?? thinkingDraft());
     return () => {};

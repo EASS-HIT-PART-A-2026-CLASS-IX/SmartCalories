@@ -1,18 +1,19 @@
 # Compose runbook
 
 The compose file is at `backend/compose.yaml` — a single self-contained dev stack. It brings up
-four services: `db` (local **Postgres**), `api` (FastAPI + uvicorn `--reload` on :9000), `web`
-(Vite dev server with HMR on :5173, reads `frontend/.env` live), and `redis` (rate-limit
-middleware). Everything runs locally — **no external Neon or Redis Cloud needed**; the api points
-at the in-compose Postgres + Redis containers regardless of the `DATABASE_URL`/`REDIS_URL` in
-`.env` (those are only for non-Docker runs and for prod via `render.yaml`).
+five services: `db` (local **Postgres**), `api` (FastAPI + uvicorn `--reload` on :9000), `web`
+(Vite dev server with HMR on :5173, reads `frontend/.env` live), `redis` (rate-limit middleware +
+rollup cache), and `refresher` (the async worker that re-runs `scripts/refresh.py` on a timer).
+Everything runs locally — **no external Neon or Redis Cloud needed**; the api points at the
+in-compose Postgres + Redis containers regardless of the `DATABASE_URL`/`REDIS_URL` in `.env`
+(those are only for non-Docker runs and for prod via `render.yaml`).
 
 ## Bring up the stack
 ```bash
 cd backend
 cp .env.example .env             # AI keys (ANTHROPIC/GEMINI/…) optional; DB + Redis come from compose
 docker compose up --build -d
-docker compose ps                # db · api · web · redis
+docker compose ps                # db · api · web · redis · refresher
 docker compose logs -f api
 ```
 
@@ -34,9 +35,29 @@ curl -s -X POST localhost:9000/auth/demo | python3 -m json.tool       # returns 
 curl -s localhost:9000/diary/today -H 'Authorization: Bearer demo-token' | python3 -m json.tool
 ```
 
-## Tests
+## Async rollup refresher (Session 09)
+Recompute + cache each user's daily macro rollups in Redis (bounded concurrency, retries,
+idempotent writes). The `refresher` compose service runs it on a loop (default every 3600s; set
+`REFRESH_INTERVAL_SECONDS` to change it) — watch it tick, or trigger a run by hand:
 ```bash
-docker compose exec api pytest        # or, locally: cd backend && uv run pytest   (38 tests)
+docker compose logs -f refresher                                    # "refresh complete: users=… written=… skipped(idempotent)=…"
+docker compose exec api python -m calorie_tracker.scripts.refresh   # force a run now (or locally: uv run python -m calorie_tracker.scripts.refresh)
+docker compose exec redis redis-cli --raw get rollup:demo-uid:summary
+```
+Re-running over unchanged data writes nothing (digests match) — see the trace in `docs/EX3-notes.md`.
+
+## Tests & CI
+```bash
+docker compose exec api pytest        # or, locally: cd backend && uv run pytest   (37 tests)
+```
+CI runs `uv run pytest` on every push/PR via `.github/workflows/ci.yml` (in-memory SQLite +
+stubbed models, so it needs no DB/Redis/Firebase/AI secrets).
+
+**Contract/fuzz testing (Schemathesis, manual).** Every route except `/health` needs an auth
+token, so run it against the live dev stack with the dev `demo-token`:
+```bash
+uvx schemathesis run http://localhost:9000/openapi.json \
+  -H 'Authorization: Bearer demo-token' --checks all
 ```
 
 ## One-command demo

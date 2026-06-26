@@ -24,6 +24,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8",
+    # anyio ships the `pytest.mark.anyio` plugin used by the Session 09 refresh tests.
+    "anyio>=4",
 ]
 
 [tool.uv]
