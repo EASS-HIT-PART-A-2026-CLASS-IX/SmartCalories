@@ -61,10 +61,11 @@ uvx schemathesis run http://localhost:9000/openapi.json \
 ```
 
 ## Local LLM — run with no cloud API key (opt-in)
-By default the agent uses the cloud providers from `.env` (Anthropic → Gemini → Groq → OpenRouter).
-To run **fully offline** with a bundled open-source model instead, use the `local-llm` profile —
-it starts Ollama and auto-pulls a small tool-capable model (`llama3.2:3b`), which becomes the
-default until a user adds their own key (BYO keys always win):
+When a local Ollama is **reachable**, the agent puts it **first** (local-first); otherwise it uses
+the cloud providers from `.env` (Anthropic → Gemini → Groq → OpenRouter). To run **fully offline**
+with a bundled open-source model, use the `local-llm` profile — it starts Ollama and auto-pulls a
+small tool-capable model (`llama3.2:1b`), which becomes the default until a user adds their own key
+(BYO keys always win):
 ```bash
 cd backend && docker compose --profile local-llm up --build
 # first run downloads ~2 GB into the sc_ollama volume; CPU inference is slow
@@ -73,10 +74,13 @@ docker compose logs -f ollama-pull                 # watch the model download
 ```
 Notes:
 - Pick the model with `OLLAMA_MODEL` (must support tool-calling — the agent needs it). Gemma was
-  considered but its tool-calling on Ollama is unreliable; `llama3.2:3b` / `qwen2.5:3b` work well.
+  considered but its tool-calling on Ollama is unreliable; `llama3.2:1b` / `qwen2.5:3b` work well.
 - The api waits for the pull to finish before serving (first start is slower).
-- Plain `docker compose up` (no profile) is unchanged — Ollama isn't started and stays last in the
-  chain, so cloud keys are used as before.
+- Plain `docker compose up` (no profile) is unchanged — Ollama isn't started, so a reachability
+  probe omits it from the chain and cloud keys are used as before.
+- **Speed:** in-container inference is CPU-only (Docker has no GPU on macOS) and slow. For real
+  speed on a Mac, run Ollama natively (Metal GPU) and set `OLLAMA_BASE_URL=http://host.docker.internal:11434`
+  in `backend/.env` — then plain `docker compose up` uses the fast host model (no profile needed).
 
 ## One-command demo
 From the repo root (auto-starts a bare SQLite API if the stack isn't up):

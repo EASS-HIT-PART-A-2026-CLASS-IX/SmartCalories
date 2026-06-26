@@ -51,10 +51,12 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # Local open-source LLM via the `local-llm` profile (see the `ollama` service below). The
-      # default points at the bundled Ollama; it's only reachable when that profile is running, and
-      # it sits LAST in the agent chain (after any cloud keys), so plain `up` is unaffected.
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      # default points at the bundled Ollama. The agent puts Ollama FIRST when it's actually
+      # reachable (local-first) and omits it otherwise — so plain `up` (no profile, nothing running
+      # there) is unaffected and falls through to the cloud keys.
+      # No `/v1` suffix: LiteLLM's `ollama_chat/` provider hits Ollama's native /api/chat.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
       ALLOWED_ORIGINS: '["http://localhost:5173"]'
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
     ports:
@@ -119,7 +121,7 @@ services:
 
   # --- Local open-source LLM (opt-in) ----------------------------------------------------------
   # `docker compose --profile local-llm up` runs Ollama + pulls a small tool-capable model, so the
-  # agent works with NO cloud API key — local llama3.2:3b becomes the default until a user adds
+  # agent works with NO cloud API key — local llama3.2:1b becomes the default until a user adds
   # their own key (BYO keys always take priority). CPU-only inference is slow; the first pull
   # downloads ~2 GB into the sc_ollama volume (cached for next time). Gemma was considered but its
   # tool-calling on Ollama is unreliable; override with OLLAMA_MODEL if you want a different tag.
@@ -142,7 +144,7 @@ services:
     profiles: ["local-llm"]
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["sh", "-c", "ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"]
+    entrypoint: ["sh", "-c", "ollama pull ${OLLAMA_MODEL:-llama3.2:1b}"]
     depends_on:
       ollama:
         condition: service_healthy

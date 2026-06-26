@@ -52,17 +52,19 @@ _DEFAULT_OPENROUTER_CHAIN = (
 )
 
 # Per-request timeout (seconds) passed to each LiteLLM call. Bounds how long a stalled provider
-# can block before `_FallbackModel` advances to the next one.
+# can block before `_FallbackModel` advances to the next one. Cloud APIs are fast; local Ollama
+# on CPU is much slower (a tool-calling turn can take minutes), so it gets a far longer budget.
 _REQUEST_TIMEOUT_S = 30
+_OLLAMA_TIMEOUT_S = 300
 
 
-def _lite(model_id: str, **kwargs) -> "LiteLLMModel":
+def _lite(model_id: str, *, timeout: int = _REQUEST_TIMEOUT_S, **kwargs) -> "LiteLLMModel":
     # retry=False: don't let smolagents back off + retry rate-limit errors per-model — that would
     #   compound across the whole chain into a long hang. Instead a 429 raises immediately and
     #   _FallbackModel advances to the next provider. num_retries=0 disables LiteLLM's own retries.
     return LiteLLMModel(
         model_id=model_id,
-        timeout=_REQUEST_TIMEOUT_S,
+        timeout=timeout,
         num_retries=0,
         retry=False,
         **kwargs,
@@ -134,24 +136,52 @@ def _provider_models(provider: str, api_key: str) -> list[Model]:
     return [_lite(f"{provider}/{name}", api_key=api_key) for name in chain]
 
 
+def _ollama_reachable(base_url: str) -> bool:
+    """Quick probe: is a local Ollama actually serving at `base_url`? Decides whether Ollama leads
+    the chain. Not-running (connection refused / DNS failure) returns fast, so a stale
+    OLLAMA_BASE_URL never slows things down."""
+    import httpx
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base_url)
+    root = f"{parsed.scheme}://{parsed.netloc}"  # strip the /v1 (OpenAI-compat) suffix
+    try:
+        httpx.get(root, timeout=1.5)
+        return True
+    except Exception:  # noqa: BLE001 — any failure means "not reachable"
+        return False
+
+
+def _ollama_model() -> Model:
+    settings = get_settings()
+    return _lite(
+        f"ollama_chat/{settings.ollama_model}",
+        api_base=settings.ollama_base_url.rstrip("/"),
+        api_key="ollama-local",
+        timeout=_OLLAMA_TIMEOUT_S,  # CPU inference is slow; don't time out a real local turn
+    )
+
+
 def _build_model_chain() -> list[Model]:
-    """The shared (server-configured) provider chain, in fallback order, ending with Ollama."""
+    """The shared (server-configured) provider chain, in fallback order.
+
+    A locally-running Ollama leads the chain (free + local), so when it's up it's the default;
+    the cloud providers follow as fallback. Ollama is omitted when it isn't reachable, so a stale
+    OLLAMA_BASE_URL (e.g. plain `docker compose up` without the local-llm profile) never appears.
+    """
     settings = get_settings()
     models: list[Model] = []
 
-    # Claude first when configured (paid; preferred quality), then the free-tier providers.
+    # Local Ollama first whenever it's actually running.
+    if settings.ollama_base_url and _ollama_reachable(settings.ollama_base_url):
+        models.append(_ollama_model())
+
+    # Then the configured cloud providers (Anthropic → Gemini → Groq → OpenRouter).
     for provider in USER_KEY_PROVIDERS:
         key = getattr(settings, f"{provider}_api_key", None)
         if key:
             models += _provider_models(provider, key)
-    if settings.ollama_base_url:
-        models.append(
-            _lite(
-                f"ollama_chat/{settings.ollama_model}",
-                api_base=settings.ollama_base_url.rstrip("/"),
-                api_key="ollama-local",
-            )
-        )
+
     return models
 
 
