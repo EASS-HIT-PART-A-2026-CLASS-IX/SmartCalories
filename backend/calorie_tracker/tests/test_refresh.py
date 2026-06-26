@@ -6,11 +6,12 @@ Redis-backed idempotency — without a real Redis or event-loop framework beyond
 """
 from __future__ import annotations
 
+import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel
 
 from calorie_tracker.models import FoodEntry, Meal, Source, User, UserGoals
@@ -55,9 +56,14 @@ class FlakyRedis(FakeRedis):
 
 
 def _make_engine():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    # A real temp-file SQLite — NOT a StaticPool ":memory:" engine. refresh_all runs each user's
+    # read on its own thread (asyncio.to_thread, max_concurrency>1), and a single shared StaticPool
+    # connection used by two threads at once raises "sqlite3.InterfaceError: bad parameter or other
+    # API misuse" (flaky — it only bit under CI timing). A file gives each session its own
+    # connection; concurrent SELECTs are safe.
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(engine)
     return engine
 
