@@ -81,14 +81,15 @@ class Settings(BaseSettings):
         description="Comma-separated OpenRouter model names. Defaults to a couple of `:free` Llama/Gemma builds.",
     )
 
-    # Local Ollama (Gemma 4 / Llama / etc.) — last-resort offline fallback. Set OLLAMA_BASE_URL
-    # to e.g. http://localhost:11434/v1 (Mac/Linux host) or http://host.docker.internal:11434/v1
-    # (from inside the api container) and pull the model via `ollama pull gemma4:e4b`.
-    # Native tool calling + vision in Gemma 4 means this works as a real backstop, not just text.
+    # Local Ollama — an open-source LLM backstop (also the default when no cloud key is set; see
+    # the compose `local-llm` profile). Set OLLAMA_BASE_URL to http://ollama:11434/v1 (compose) or
+    # http://localhost:11434/v1 (bare host), and `ollama pull <model>`. Default model is
+    # llama3.2:3b — small + tool-capable, which the agent needs (Gemma's tool-calling on Ollama is
+    # unreliable). Appended LAST in the chain, so cloud keys win when present.
     ollama_base_url: str | None = None
     ollama_model: str = Field(
-        default="gemma4:e4b",
-        description="Ollama tag to use as the offline fallback model. Defaults to gemma4:e4b.",
+        default="llama3.2:3b",
+        description="Ollama tag for the local fallback model. Must support tool calling; defaults to llama3.2:3b.",
     )
 
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])

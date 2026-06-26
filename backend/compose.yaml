@@ -50,8 +50,11 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:e4b}
+      # Local open-source LLM via the `local-llm` profile (see the `ollama` service below). The
+      # default points at the bundled Ollama; it's only reachable when that profile is running, and
+      # it sits LAST in the agent chain (after any cloud keys), so plain `up` is unaffected.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       ALLOWED_ORIGINS: '["http://localhost:5173"]'
       LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
     ports:
@@ -64,6 +67,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # When the `local-llm` profile is active, wait for the model pull to finish before serving so
+      # the first chat works. `required: false` drops this dependency when the profile is off.
+      ollama-pull:
+        condition: service_completed_successfully
+        required: false
     volumes:
       - ./calorie_tracker:/app/calorie_tracker
       - ./alembic.ini:/app/alembic.ini
@@ -109,6 +117,37 @@ services:
     volumes:
       - ./calorie_tracker:/app/calorie_tracker
 
+  # --- Local open-source LLM (opt-in) ----------------------------------------------------------
+  # `docker compose --profile local-llm up` runs Ollama + pulls a small tool-capable model, so the
+  # agent works with NO cloud API key — local llama3.2:3b becomes the default until a user adds
+  # their own key (BYO keys always take priority). CPU-only inference is slow; the first pull
+  # downloads ~2 GB into the sc_ollama volume (cached for next time). Gemma was considered but its
+  # tool-calling on Ollama is unreliable; override with OLLAMA_MODEL if you want a different tag.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-llm"]
+    volumes:
+      - sc_ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: pulls the model into the shared volume, then exits. The api waits for this to finish.
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["local-llm"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
   redis:
     image: redis:7-alpine
     healthcheck:
@@ -148,3 +187,4 @@ services:
 volumes:
   sc_pgdata:
   sc_web_node_modules:
+  sc_ollama:

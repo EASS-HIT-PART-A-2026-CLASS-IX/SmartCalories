@@ -60,6 +60,24 @@ uvx schemathesis run http://localhost:9000/openapi.json \
   -H 'Authorization: Bearer demo-token' --checks all
 ```
 
+## Local LLM — run with no cloud API key (opt-in)
+By default the agent uses the cloud providers from `.env` (Anthropic → Gemini → Groq → OpenRouter).
+To run **fully offline** with a bundled open-source model instead, use the `local-llm` profile —
+it starts Ollama and auto-pulls a small tool-capable model (`llama3.2:3b`), which becomes the
+default until a user adds their own key (BYO keys always win):
+```bash
+cd backend && docker compose --profile local-llm up --build
+# first run downloads ~2 GB into the sc_ollama volume; CPU inference is slow
+docker compose ps                                  # …+ ollama (ollama-pull exits after the pull)
+docker compose logs -f ollama-pull                 # watch the model download
+```
+Notes:
+- Pick the model with `OLLAMA_MODEL` (must support tool-calling — the agent needs it). Gemma was
+  considered but its tool-calling on Ollama is unreliable; `llama3.2:3b` / `qwen2.5:3b` work well.
+- The api waits for the pull to finish before serving (first start is slower).
+- Plain `docker compose up` (no profile) is unchanged — Ollama isn't started and stays last in the
+  chain, so cloud keys are used as before.
+
 ## One-command demo
 From the repo root (auto-starts a bare SQLite API if the stack isn't up):
 ```bash
