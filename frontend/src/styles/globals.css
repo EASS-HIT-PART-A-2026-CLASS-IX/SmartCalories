@@ -47,7 +47,7 @@
   * { @apply border-border; }
   /* Root font-size drives the whole app: Tailwind's spacing, widths, and font sizes are all
      rem-based, so bumping this scales typography, padding, and layout widths together. */
-  html { -webkit-tap-highlight-color: transparent; font-size: 21px; }
+  html { -webkit-tap-highlight-color: transparent; font-size: 23px; }
   body {
     @apply bg-background text-foreground font-sans;
     font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
