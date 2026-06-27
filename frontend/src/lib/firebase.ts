@@ -1,6 +1,6 @@
 /**
- * Firebase Auth. Three sign-in paths only: Google OAuth, anonymous (guest), and demo
- * (handled out-of-band by the backend's /auth/demo endpoint).
+ * Firebase Auth. Two sign-in paths only: Google OAuth, and demo (handled out-of-band by
+ * the backend's /auth/demo endpoint).
  */
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
@@ -11,7 +11,6 @@ import {
   getAuth,
   linkWithPopup,
   onIdTokenChanged,
-  signInAnonymously,
   signInWithCredential,
   signInWithPopup,
   signOut as fbSignOut,
@@ -37,12 +36,6 @@ function ensureApp(): { app: FirebaseApp; auth: Auth } | null {
 
 export function getFirebaseAuth(): Auth | null {
   return ensureApp()?.auth ?? null;
-}
-
-export async function signInGuest(): Promise<void> {
-  const a = getFirebaseAuth();
-  if (!a) return;
-  await signInAnonymously(a);
 }
 
 /** Sign out of Firebase (if active) so the demo session can replace it cleanly. */

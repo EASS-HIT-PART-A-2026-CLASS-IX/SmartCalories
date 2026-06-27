@@ -76,12 +76,3 @@ export interface DemoSession {
 }
 
 export const startDemoSession = () => api<DemoSession>('/auth/demo', { method: 'POST' });
-
-export interface PlaygroundSeedResponse {
-  uid: string;
-  seeded: Record<string, number>;
-}
-
-/** Idempotent — no-op if the current user already has diary entries. */
-export const seedPlayground = () =>
-  api<PlaygroundSeedResponse>('/auth/playground', { method: 'POST' });

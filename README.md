@@ -60,7 +60,7 @@ Key route groups: `/users/me`, `/me/llm-key`, `/diary`, `/insights`, `/logs`, `/
 ```bash
 cd frontend
 npm install
-npm run dev        # http://localhost:5173 — click "Continue as guest", then type:  /log oatmeal 300
+npm run dev        # http://localhost:5173 — click "Explore the demo", then type:  /log oatmeal 300
 ```
 
 ## Full stack with Docker

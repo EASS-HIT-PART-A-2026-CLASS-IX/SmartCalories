@@ -17,8 +17,7 @@
     "save": "Save",
     "cancel": "Cancel",
     "signIn": "Sign in",
-    "signOut": "Sign out",
-    "continueAsGuest": "Continue as guest"
+    "signOut": "Sign out"
   },
   "auth": {
     "demoMode": "Demo mode — set VITE_FB_* in .env.local for real Firebase auth.",

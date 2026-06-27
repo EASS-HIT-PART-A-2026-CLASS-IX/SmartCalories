@@ -17,8 +17,7 @@
     "save": "שמירה",
     "cancel": "ביטול",
     "signIn": "התחברות",
-    "signOut": "התנתקות",
-    "continueAsGuest": "המשך כאורח"
+    "signOut": "התנתקות"
   },
   "auth": {
     "demoMode": "מצב הדגמה — הגדר את VITE_FB_* בקובץ .env.local עבור אימות Firebase אמיתי.",

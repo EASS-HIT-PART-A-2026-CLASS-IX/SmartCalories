@@ -10,7 +10,7 @@ npm run dev        # http://localhost:5173
 ```
 Config via `.env` (copy from `.env.example` if present): `VITE_API_BASE` (default
 `http://localhost:9000`) and the `VITE_FB_*` Firebase keys. Without Firebase keys the app still
-runs; sign-in/guest mode needs them.
+runs in demo-only mode; Google sign-in needs them.
 
 ```bash
 npm run build      # tsc + vite build

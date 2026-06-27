@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { env, firebaseConfigured } from '@/lib/env';
-import { signInGuest, watchIdToken } from '@/lib/firebase';
+import { watchIdToken } from '@/lib/firebase';
 import { useAuthStore } from '@/stores/authStore';
 import { listConversations, listMessages } from '@/lib/api/chat';
 
@@ -113,20 +113,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (env.allowGuest) {
-        signInGuest()
-          .then(() => {
-            console.info('[auth] signInAnonymously dispatched');
-          })
-          .catch((err) => {
-            console.error('[auth] anonymous sign-in failed:', err);
-            reset();
-            setReady(true);
-          });
-      } else {
-        reset();
-        setReady(true);
-      }
+      // No signed-in user and no demo session → show the login screen (Demo / Google).
+      // There is no anonymous "guest" auto-sign-in anymore.
+      reset();
+      setReady(true);
     });
   }, [setUser, setReady, reset, queryClient, i18n.language]);
 

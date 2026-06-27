@@ -37,7 +37,7 @@ cd backend
 cp .env.example .env             # AI keys optional; the DB + Redis run as local containers
 docker compose up --build -d
 docker compose ps                # db · api · redis · web · refresher
-# open http://localhost:5173 → "Continue as guest" → type:  /log oatmeal 300
+# open http://localhost:5173 → "Explore the demo" → type:  /log oatmeal 300
 ```
 
 **Local dev without Docker:**

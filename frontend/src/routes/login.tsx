@@ -8,11 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { firebaseConfigured } from '@/lib/env';
-import { clearFirebaseSession, signInGuest, signInWithGoogle } from '@/lib/firebase';
+import { clearFirebaseSession, signInWithGoogle } from '@/lib/firebase';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
-import { startDemoSession, seedPlayground } from '@/lib/api/domain';
+import { startDemoSession } from '@/lib/api/domain';
 
 export default function LoginRoute() {
   const { t } = useTranslation();
@@ -60,7 +60,7 @@ export default function LoginRoute() {
           </div>
           <CardTitle>Welcome to SmartCalories</CardTitle>
           <CardDescription>
-            Sign in, continue as a guest, or jump straight into a fully-loaded demo.
+            Jump into a fully-loaded demo, or sign in with Google.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -93,35 +93,6 @@ export default function LoginRoute() {
               Continue with Google
             </Button>
           )}
-
-          <Button
-            className="w-full"
-            variant="ghost"
-            onClick={() =>
-              wrap('Guest', 'guest', async () => {
-                // No Firebase → there's no anonymous auth, so /auth/playground would 401. The
-                // guest experience falls back to the demo session (/auth/demo needs no token and
-                // seeds data). With Firebase, sign in anonymously, then seed the playground.
-                if (!ready) {
-                  await startDemo();
-                  return;
-                }
-                await signInGuest();
-                await new Promise((r) => setTimeout(r, 600));
-                try {
-                  const res = await seedPlayground();
-                  if (res.seeded.food_entry > 0) {
-                    toast.success(`Playground ready — ${res.seeded.food_entry} sample entries loaded`);
-                  }
-                } catch {
-                  /* idempotent failure is non-fatal */
-                }
-              })
-            }
-            disabled={busy !== null}
-          >
-            {t('actions.continueAsGuest')}
-          </Button>
 
           <Separator className="my-2" />
 

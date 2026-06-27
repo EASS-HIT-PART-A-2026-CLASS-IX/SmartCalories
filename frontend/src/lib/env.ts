@@ -6,7 +6,6 @@ export const env = {
     projectId: import.meta.env.VITE_FB_PROJECT_ID ?? '',
     appId: import.meta.env.VITE_FB_APP_ID ?? '',
   },
-  allowGuest: (import.meta.env.VITE_ALLOW_GUEST ?? '1') !== '0',
 };
 
 export function firebaseConfigured(): boolean {

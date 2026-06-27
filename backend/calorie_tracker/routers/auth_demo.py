@@ -1,11 +1,11 @@
-"""Dev-only auth-helper endpoints: `/auth/demo` and `/auth/playground`."""
+"""Dev-only auth-helper endpoint: `/auth/demo`."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
 from ..config import get_settings
-from ..deps import CurrentUser, SessionDep
-from ..services.demo_seed import DEMO_UID, populate, populate_starter
+from ..deps import SessionDep
+from ..services.demo_seed import DEMO_UID, populate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -29,11 +29,3 @@ def start_demo(session: SessionDep) -> dict:
         "is_anonymous": False,
         "seeded": counts,
     }
-
-
-@router.post("/playground")
-def seed_playground(user: CurrentUser, session: SessionDep) -> dict:
-    """Seed lightweight starter data for the current user. Idempotent — skips if the user
-    already has any diary entries. Used by the frontend's "Continue as guest" flow."""
-    counts = populate_starter(session, user.uid)
-    return {"uid": user.uid, "seeded": counts}
