@@ -99,7 +99,14 @@ export default function LoginRoute() {
             variant="ghost"
             onClick={() =>
               wrap('Guest', 'guest', async () => {
-                if (ready) await signInGuest();
+                // No Firebase → there's no anonymous auth, so /auth/playground would 401. The
+                // guest experience falls back to the demo session (/auth/demo needs no token and
+                // seeds data). With Firebase, sign in anonymously, then seed the playground.
+                if (!ready) {
+                  await startDemo();
+                  return;
+                }
+                await signInGuest();
                 await new Promise((r) => setTimeout(r, 600));
                 try {
                   const res = await seedPlayground();
