@@ -318,6 +318,36 @@ def _clean_agent_text(text: str) -> str:
     return cleaned
 
 
+def _no_provider_detail(user: User) -> str:
+    """Actionable message when the agent has NO model at all — no server-side provider key and
+    (for signed-in users) no personal key saved. Guests/demo can't open Settings, so they only get
+    the .env guidance."""
+    msg = (
+        "No AI model is configured yet. Add a free API key — Gemini, Groq, or OpenRouter "
+        "(or Anthropic) — to the server's backend/.env "
+        "(GEMINI_API_KEY / GROQ_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY) and restart it."
+    )
+    # Settings → API keys is only available to real signed-in users (not guests/demo).
+    can_use_settings = not user.is_anonymous and not (user.uid or "").startswith("demo-")
+    if can_use_settings:
+        msg += " Or add your own key under Settings → API keys."
+    return msg
+
+
+def _build_agent_or_raise(session: Session, user: User):
+    """Build the per-request agent. If NO provider is configured at all, raise a clear 503 with
+    setup guidance instead of a bare 500. Returns (agent, user_keys)."""
+    user_keys = _user_llm_keys(session, user)
+    try:
+        agent = build_agent(session, user, user_keys=user_keys)
+    except RuntimeError as exc:  # get_default_model(): "No LLM provider configured"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_no_provider_detail(user),
+        ) from exc
+    return agent, user_keys
+
+
 async def _run_agent_turn(
     s: ChatSession,
     content: str,
@@ -333,8 +363,7 @@ async def _run_agent_turn(
     _maybe_retitle(s, content, session)
 
     task = _build_task(session, s.id, content)
-    user_keys = _user_llm_keys(session, user)
-    agent = build_agent(session, user, user_keys=user_keys)
+    agent, user_keys = _build_agent_or_raise(session, user)
 
     raw = await _run_agent_or_raise(
         agent,
@@ -503,7 +532,14 @@ async def chat_ws(websocket: WebSocket, session: SessionDep) -> None:
     # --- Stream the agent run, forwarding tool events live ---
     task = _build_task(session, s.id, content)
     user_keys = _user_llm_keys(session, user)
-    agent = build_agent(session, user, user_keys=user_keys)
+    try:
+        agent = build_agent(session, user, user_keys=user_keys)
+    except RuntimeError:  # no provider configured at all → clear setup guidance
+        await _safe_send(
+            websocket, {"type": "error", "message": _no_provider_detail(user)}
+        )
+        await websocket.close()
+        return
 
     from smolagents.memory import FinalAnswerStep  # local import keeps module load cheap
 
