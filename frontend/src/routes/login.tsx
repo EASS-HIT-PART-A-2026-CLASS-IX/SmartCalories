@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import { Github, Linkedin, LogIn, Sparkles, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -15,7 +14,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { startDemoSession } from '@/lib/api/domain';
 
 export default function LoginRoute() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const setUser = useAuthStore((s) => s.setUser);
   const setReady = useAuthStore((s) => s.setReady);
@@ -81,7 +79,10 @@ export default function LoginRoute() {
 
           {!ready ? (
             <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-              {t('auth.demoMode')}
+              Demo mode — set VITE_FB_* in .env.local for real
+              <a href="https://firebase.google.com/docs/auth" target="_blank" rel="noreferrer">
+                Firebase auth
+              </a>
             </div>
           ) : (
             <Button

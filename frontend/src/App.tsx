@@ -2,12 +2,11 @@ import { useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import { useTranslation } from 'react-i18next';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthProvider } from '@/components/AuthProvider';
 import { HealthGate } from '@/components/HealthGate';
-import { applyLanguage, applyTheme, usePrefsStore } from '@/stores/prefsStore';
+import { applyTheme, usePrefsStore } from '@/stores/prefsStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,18 +19,11 @@ import DiaryRoute from '@/routes/diary';
 import LoginRoute from '@/routes/login';
 
 export default function App() {
-  const { i18n } = useTranslation();
   const theme = usePrefsStore((s) => s.theme);
-  const language = usePrefsStore((s) => s.language);
 
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
-
-  useEffect(() => {
-    applyLanguage(language);
-    void i18n.changeLanguage(language);
-  }, [language, i18n]);
 
   return (
     <QueryClientProvider client={queryClient}>

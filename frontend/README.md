@@ -1,7 +1,7 @@
 # SmartCalories — frontend
 
-Vite + React 18 + TypeScript + Tailwind + shadcn/ui + Firebase Auth + TanStack Query, with
-react-i18next (English + Hebrew, RTL). Talks to the FastAPI backend over HTTP + a chat WebSocket.
+Vite + React 18 + TypeScript + Tailwind + shadcn/ui + Firebase Auth + TanStack Query. Talks to
+the FastAPI backend over HTTP + a chat WebSocket.
 
 ## Run
 ```bash

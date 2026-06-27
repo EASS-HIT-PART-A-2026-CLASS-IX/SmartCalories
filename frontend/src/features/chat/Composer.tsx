@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Send, Square } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -15,7 +14,6 @@ interface Props {
 }
 
 export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPrefillConsumed }: Props) {
-  const { t } = useTranslation();
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -66,12 +64,12 @@ export function Composer({ disabled, isStreaming, onSend, onStop, prefill, onPre
           {isStreaming ? (
             <Button type="button" variant="outline" onClick={onStop}>
               <Square className="me-1 h-3 w-3" />
-              {t('actions.stop')}
+              Stop
             </Button>
           ) : (
             <Button type="button" disabled={disabled || !text.trim()} onClick={submit}>
               <Send className="me-1 h-3 w-3" />
-              {t('actions.send')}
+              Send
             </Button>
           )}
         </div>

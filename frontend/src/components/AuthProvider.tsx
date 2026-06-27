@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { env, firebaseConfigured } from '@/lib/env';
@@ -10,7 +9,6 @@ import { listConversations, listMessages } from '@/lib/api/chat';
 const DEMO_UID_PREFIX = 'demo-';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { i18n } = useTranslation();
   const setUser = useAuthStore((s) => s.setUser);
   const setReady = useAuthStore((s) => s.setReady);
   const reset = useAuthStore((s) => s.reset);
@@ -118,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       reset();
       setReady(true);
     });
-  }, [setUser, setReady, reset, queryClient, i18n.language]);
+  }, [setUser, setReady, reset, queryClient]);
 
   return <>{children}</>;
 }
