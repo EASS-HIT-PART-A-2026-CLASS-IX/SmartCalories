@@ -17,8 +17,8 @@ npm run build      # tsc + vite build
 npm run typecheck  # tsc -b --noEmit
 ```
 
-In Docker the whole stack (api + web + redis) comes up via `backend/compose.yaml` — see
-`../docs/runbooks/compose.md`.
+In Docker the whole stack (db + api + web + redis + refresher) comes up via `backend/compose.yaml`
+— see `../docs/runbooks/compose.md`.
 
 ## AI Assistance
 Built with Claude Code. Prompts, design decisions, and verification steps are documented in the

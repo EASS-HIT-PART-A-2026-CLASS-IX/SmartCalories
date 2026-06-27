@@ -81,12 +81,8 @@ services:
     # writes nothing (digests match), so looping on a timer is safe. Interval is configurable;
     # the cache TTL (36h) outlives the default cadence so a missed tick leaves yesterday's snapshot.
     image: smart-calories-api
-    command:
-      [
-        "sh",
-        "-c",
-        'while true; do python -m calorie_tracker.scripts.refresh || true; sleep "${REFRESH_INTERVAL_SECONDS:-3600}"; done',
-      ]
+    # The loop + sleep live in a script file (not inline) for readability/reuse.
+    command: ["sh", "/app/calorie_tracker/scripts/refresh_loop.sh"]
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-dev}
       DATABASE_URL: postgresql+psycopg://smartcalories:smartcalories@db:5432/smartcalories

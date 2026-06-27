@@ -90,7 +90,7 @@ Details + a Redis trace are in [`docs/EX3-notes.md`](docs/EX3-notes.md); compose
 ## AI Assistance
 This project was built with Claude Code (Anthropic). Planning was done in plan mode
 (`.claude/plans/`), with architecture decisions chosen interactively (Firebase vs bcrypt, the
-Gemini→Groq→OpenRouter→Ollama fallback, Neon vs SQLite, and migrating the chat agent from
+Anthropic→Gemini→Groq→OpenRouter fallback, Neon vs SQLite, and migrating the chat agent from
 Pydantic AI to smolagents/LiteLLM). Every change was verified locally — `uv run pytest` green,
 `npm run build` green, and the `scripts/demo.sh` smoke test — and reviewed in the commit history;
 nothing was auto-merged. See `docs/EX3-notes.md` for the full rubric mapping and a candid
