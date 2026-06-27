@@ -79,8 +79,7 @@ export default function LoginRoute() {
 
           {!ready ? (
             <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-              Demo mode — set VITE_FB_* in .env.local for real
-              <a href="https://firebase.google.com/docs/auth" className="underline" target="_blank" rel="noreferrer">
+              Demo mode — set VITE_FB_* in .env.local for real <a href="https://firebase.google.com/docs/auth" className="underline" target="_blank" rel="noreferrer">
                 Firebase auth
               </a>
             </div>
