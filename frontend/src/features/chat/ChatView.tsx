@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Dumbbell, Sparkles } from 'lucide-react';
 
@@ -33,7 +32,6 @@ const EXAMPLE_PROMPTS: Array<{ label: string; text: string }> = [
 ];
 
 export function ChatView() {
-  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const params = useParams<{ sessionId?: string }>();
@@ -267,7 +265,7 @@ export function ChatView() {
                     <Dumbbell className="h-7 w-7" />
                   </div>
                   <h1 className="text-2xl font-semibold tracking-tight">
-                    {displayName ? `Hi, ${displayName.split(' ')[0]}` : t('app.name')}
+                    {displayName ? `Hi, ${displayName.split(' ')[0]}` : 'SmartCalories'}
                   </h1>
                   <p className="max-w-md text-base text-muted-foreground">
                     Ask the agent to log a meal, plan your week, or check your macros. Tap a

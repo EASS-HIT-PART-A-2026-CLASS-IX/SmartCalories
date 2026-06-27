@@ -54,7 +54,7 @@ cd frontend && npm install && npm run dev      # http://localhost:5173
 React (Vite dev server)  ──HTTP + WebSocket──►  FastAPI  ──►  Postgres (compose-local / Neon in prod) / SQLite
   Firebase JS SDK                            │  ├─ Firebase Admin (verify ID token)
   TanStack Query                             │  ├─ smolagents ToolCallingAgent (LiteLLM)
-  en + he (RTL)                              │  └─ rate-limit middleware ──► Redis
+  Zustand + Tailwind                         │  └─ rate-limit middleware ──► Redis
 External: Anthropic / Gemini / Groq / OpenRouter (LLM, with fallback) · Firebase Auth
 ```
 Redis backs the rate-limit middleware (always-on) and the **rollup cache** written by the async
@@ -104,12 +104,11 @@ $ redis-cli --raw get rollup:demo-uid:summary
 - `GET /insights/macros/today`, `GET /insights/macros/range?days=`, `GET /insights/streak`, `POST /insights/tdee`
 - `POST /logs/water`, `GET /logs/range`
 - `POST /chat/messages` (create-or-append), `POST /chat/sessions/{id}/messages`, session CRUD + search, `WS /chat/ws` (live tool + token events)
-- `POST /auth/demo`, `POST /auth/playground` (dev/seed helpers)
+- `POST /auth/demo` (dev/seed helper)
 
 ## Beyond-rubric extras
 - **Multi-provider LLM resilience** — automatic fallback across Anthropic, Gemini, Groq, and OpenRouter, so a rate-limited provider degrades gracefully instead of erroring.
 - **Bring-your-own API keys** — signed-in users store personal keys for any of the four chat providers (Anthropic, Gemini, Groq, OpenRouter), encrypted at rest with Fernet (AES-128-CBC + HMAC); the agent uses them first in fallback order, and only a masked last-4 hint is ever read back. The Settings modal explains the fallback strategy and recommends adding keys in that order.
-- **Bilingual UI** — English + Hebrew with full RTL.
 - **ChatGPT-style streaming** — the chat WebSocket emits typed events (`session`/`tool`/`message`/`title`/`done`/`error`); the client renders a thinking pill, animated tool-call chips, paced token output, and a Stop button.
 - **Per-message model attribution** — every assistant reply records and shows which model produced it (e.g. `claude-haiku-4-5`) in tiny muted text under the bubble, so provider fallback is transparent (`ChatMessage.model`, returned over REST + WS).
 - **Markdown rendering** — assistant replies render GitHub-flavored markdown (lists, tables, code blocks) via react-markdown + Tailwind Typography; user messages stay verbatim.

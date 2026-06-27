@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Droplet, Plus, Trash2 } from 'lucide-react';
 import dayjs from 'dayjs';
@@ -13,7 +12,6 @@ import { ListRowsSkeleton, StatGridSkeleton } from '@/components/feedback/Skelet
 import { diaryApi, insightsApi, logsApi, usersApi } from '@/lib/api/domain';
 
 export default function DiaryRoute() {
-  const { t } = useTranslation();
   const qc = useQueryClient();
   const [name, setName] = useState('');
   const [kcal, setKcal] = useState('');
@@ -204,7 +202,7 @@ export default function DiaryRoute() {
           </CardContent>
         </Card>
       ) : dayEntries.length === 0 ? (
-        <EmptyState description={isToday ? t('empty.diary') : `No entries for ${selectedDay.format('MMM D')}`} />
+        <EmptyState description={isToday ? 'No entries yet today. Use the Chat tab or tap + to log.' : `No entries for ${selectedDay.format('MMM D')}`} />
       ) : (
         <Card>
           <CardHeader className="pb-2">

@@ -7,7 +7,6 @@ import {
   useMatch,
   useNavigate,
 } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
   Github,
@@ -42,16 +41,15 @@ import { ApiKeyDialog } from '@/features/settings/ApiKeyDialog';
 
 const RECENTS_PAGE = 5;
 
-type NavItem = { to: string; key: string; icon: React.ComponentType<{ className?: string }> };
+type NavItem = { to: string; label: string; icon: React.ComponentType<{ className?: string }> };
 
 // Bottom tab bar on mobile. Conversations ("Recents") live in the slide-in drawer.
 const MOBILE_NAV: NavItem[] = [
-  { to: '/', key: 'chat', icon: MessageCircle },
-  { to: '/diary', key: 'diary', icon: LayoutDashboard },
+  { to: '/', label: 'Chat', icon: MessageCircle },
+  { to: '/diary', label: 'Diary', icon: LayoutDashboard },
 ];
 
 export function AppShell() {
-  const { t } = useTranslation();
   const location = useLocation();
   const ready = useAuthStore((s) => s.ready);
   const uid = useAuthStore((s) => s.uid);
@@ -126,7 +124,7 @@ export function AppShell() {
   if (!ready || !uid) {
     return (
       <div className="flex h-dvh items-center justify-center text-base text-muted-foreground">
-        {t('loading')}
+        Loading…
       </div>
     );
   }
@@ -143,13 +141,13 @@ export function AppShell() {
           to="/"
           onClick={close}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm"
-          title={t('app.name')}
+          title="SmartCalories"
         >
           <Sparkles className="h-4 w-4" />
         </Link>
         {!collapsed && (
           <Link to="/" onClick={close} className="truncate text-base font-semibold tracking-tight">
-            {t('app.name')}
+            SmartCalories
           </Link>
         )}
         {isMobile ? (
@@ -176,7 +174,7 @@ export function AppShell() {
             navigate('/');
             close();
           }}
-          title={collapsed ? t('actions.newChat') : undefined}
+          title={collapsed ? 'New chat' : undefined}
           className={cn(
             'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
             collapsed && 'justify-center px-2',
@@ -186,13 +184,13 @@ export function AppShell() {
           )}
         >
           <Plus className="h-5 w-5" />
-          {!collapsed && <span>{t('actions.newChat')}</span>}
+          {!collapsed && <span>New chat</span>}
         </button>
 
         <NavLink
           to="/diary"
           onClick={close}
-          title={collapsed ? t('nav.diary') : undefined}
+          title={collapsed ? 'Diary' : undefined}
           className={({ isActive }) =>
             cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
@@ -204,7 +202,7 @@ export function AppShell() {
           }
         >
           <LayoutDashboard className="h-5 w-5" />
-          {!collapsed && <span>{t('nav.diary')}</span>}
+          {!collapsed && <span>Diary</span>}
         </NavLink>
 
         {!collapsed && (
@@ -215,20 +213,20 @@ export function AppShell() {
                 type="search"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder={t('nav.searchChats')}
+                placeholder="Search chats"
                 className="w-full rounded-md border bg-background py-1.5 ps-9 pe-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </div>
 
             <div className="px-3 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {t('nav.recents')}
+              Recents
             </div>
 
             {isSearching && search.isLoading ? (
-              <div className="px-3 py-1 text-xs text-muted-foreground">{t('loading')}</div>
+              <div className="px-3 py-1 text-xs text-muted-foreground">Loading…</div>
             ) : recentsList.length === 0 ? (
               <div className="px-3 py-1 text-xs text-muted-foreground">
-                {isSearching ? 'No matching chats.' : t('empty.history')}
+                {isSearching ? 'No matching chats.' : 'Your past chats will appear here.'}
               </div>
             ) : (
               <>
@@ -260,7 +258,7 @@ export function AppShell() {
                     onClick={() => setRecentsLimit((n) => n + RECENTS_PAGE)}
                     className="mt-1 w-full rounded-md px-3 py-1.5 text-start text-xs font-medium text-primary hover:bg-secondary"
                   >
-                    {t('nav.loadMore')}
+                    Load more
                   </button>
                 )}
               </>
@@ -284,13 +282,13 @@ export function AppShell() {
                   className="w-full cursor-not-allowed justify-start text-muted-foreground/50 hover:bg-transparent hover:text-muted-foreground/50"
                 >
                   <KeyRound className="me-2 h-3.5 w-3.5" />
-                  {t('nav.apiKey')}
+                  API key
                 </Button>
                 <span
                   role="tooltip"
                   className="pointer-events-none absolute bottom-full start-0 z-50 mb-1 hidden w-max max-w-[220px] rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-md group-hover:block"
                 >
-                  {t('nav.apiKeyGuestHint')}
+                  Sign in to set your own API keys
                 </span>
               </div>
             ) : (
@@ -304,7 +302,7 @@ export function AppShell() {
                 className="justify-start text-muted-foreground"
               >
                 <KeyRound className="me-2 h-3.5 w-3.5" />
-                {t('nav.apiKey')}
+                API key
               </Button>
             )}
             <Button
@@ -314,7 +312,7 @@ export function AppShell() {
               className="justify-start text-muted-foreground"
             >
               {isDark ? <Sun className="me-2 h-3.5 w-3.5" /> : <Moon className="me-2 h-3.5 w-3.5" />}
-              {t('nav.darkMode')}
+              Dark mode
             </Button>
             <Separator className="my-1" />
           </>
@@ -325,7 +323,7 @@ export function AppShell() {
             <UserAvatar photoUrl={photoUrl} displayName={displayName} size={32} />
             <div className="min-w-0 flex-1 leading-tight">
               <div className="truncate text-sm font-medium text-foreground">
-                {displayName ?? email ?? t('auth.guest')}
+                {displayName ?? email ?? 'Guest'}
               </div>
               {isAnonymous && <Badge variant="secondary">guest</Badge>}
               {!isAnonymous && email && (
@@ -339,7 +337,7 @@ export function AppShell() {
         {isAnonymous && !collapsed && (
           <Button asChild variant="outline" size="sm" className="w-full">
             <Link to="/login" onClick={close}>
-              {t('actions.signIn')}
+              Sign in
             </Link>
           </Button>
         )}
@@ -352,7 +350,7 @@ export function AppShell() {
               className="justify-start text-muted-foreground"
             >
               <LogOut className="me-2 h-3.5 w-3.5" />
-              {t('actions.signOut')}
+              Sign out
             </Button>
             <div className="flex items-center justify-end gap-2 pt-1 text-muted-foreground">
               <a
@@ -407,7 +405,7 @@ export function AppShell() {
         className={cn(
           'fixed inset-y-0 start-0 z-50 flex w-72 max-w-[85vw] flex-col border-e bg-card shadow-xl',
           'transition-transform duration-200 md:hidden',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         {sidebarBody(false, true, () => setMobileOpen(false))}
@@ -419,11 +417,11 @@ export function AppShell() {
             <Menu className="h-5 w-5" />
           </Button>
           <Sparkles className="h-5 w-5 text-primary" />
-          <span className="font-semibold">{t('app.name')}</span>
+          <span className="font-semibold">SmartCalories</span>
           <div className="ms-auto flex items-center gap-2">
             {isAnonymous && (
               <Button variant="outline" size="sm" asChild>
-                <Link to="/login">{t('actions.signIn')}</Link>
+                <Link to="/login">Sign in</Link>
               </Button>
             )}
             <UserAvatar photoUrl={photoUrl} displayName={displayName} size={26} />
@@ -436,7 +434,7 @@ export function AppShell() {
           className="grid grid-cols-2 border-t md:hidden"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          {MOBILE_NAV.map(({ to, key, icon: Icon }) => (
+          {MOBILE_NAV.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -449,7 +447,7 @@ export function AppShell() {
               }
             >
               <Icon className="mb-0.5 h-5 w-5" />
-              {t(`nav.${key}`)}
+              {label}
             </NavLink>
           ))}
         </nav>
